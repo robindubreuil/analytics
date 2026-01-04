@@ -1,0 +1,61 @@
+/* Header */
+
+.header {
+  position: sticky;
+  top: 0;
+  z-index: var(--z-sticky);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: var(--header-height);
+  padding: 0 var(--space-lg);
+  background: var(--color-bg-elevated);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.header__logo {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  font-weight: var(--font-bold);
+  font-size: var(--text-lg);
+  color: var(--color-text);
+}
+
+.header__logo-icon {
+  width: 28px;
+  height: 28px;
+  color: var(--color-primary);
+}
+
+.header__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.header__btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-md);
+  color: var(--color-text-muted);
+  transition: all var(--transition-fast);
+}
+
+.header__btn:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text);
+}
+
+.header__btn svg {
+  width: 20px;
+  height: 20px;
+}
+
+.header__btn--active {
+  color: var(--color-primary);
+  background: var(--color-primary-light);
+}

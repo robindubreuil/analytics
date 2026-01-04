@@ -1,0 +1,14 @@
+{
+  "name": "analytics-dashboard",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Lightweight analytics dashboard",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "vite": "^7.1.10"
+  }
+}

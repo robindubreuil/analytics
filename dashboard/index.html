@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="fr" data-theme="auto">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Tableau de bord Statistiques</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2'><path d='M3 3v18h18'/><path d='M18 17V9'/><path d='M13 17V5'/><path d='M8 17v-3'/></svg>" />
+</head>
+<body>
+  <!-- Header -->
+  <header class="header">
+    <div class="header__logo">
+      <svg class="header__logo-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M3 3v18h18"/>
+        <path d="M18 17V9"/>
+        <path d="M13 17V5"/>
+        <path d="M8 17v-3"/>
+      </svg>
+      <span>Statistiques</span>
+    </div>
+    <div class="header__actions">
+      <button class="header__btn" id="autorefresh-btn" title="Actualisation auto (1 min)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/>
+        </svg>
+      </button>
+      <button class="header__btn" id="theme-toggle" title="Changer le thème">
+        <svg class="theme-icon-light" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="5"/>
+          <line x1="12" y1="1" x2="12" y2="3"/>
+          <line x1="12" y1="21" x2="12" y2="23"/>
+          <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/>
+          <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
+          <line x1="1" y1="12" x2="3" y2="12"/>
+          <line x1="21" y1="12" x2="23" y2="12"/>
+          <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/>
+          <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+        </svg>
+      </button>
+      <button class="header__btn" id="api-key-btn" title="Paramètres de la clé API">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect width="18" height="11" x="3" y="11" rx="2" ry="2"/>
+          <path d="M7 11V7a5 5 0 0 1 9.9-1"/>
+        </svg>
+      </button>
+      <button class="header__btn" id="refresh-btn" title="Actualiser les données">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M23 4v6h-6M1 20v-6h6"/>
+          <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+        </svg>
+      </button>
+    </div>
+  </header>
+
+  <!-- Main Content -->
+  <main class="main">
+    <div class="container">
+      <!-- Error Alert -->
+      <div id="error-alert" class="mb-lg"></div>
+
+      <!-- Date Picker -->
+      <div class="flex justify-between items-center mb-lg flex--col gap-md">
+        <div id="date-picker"></div>
+        <div id="health-status" class="d-flex"></div>
+      </div>
+
+      <!-- Metrics Grid -->
+      <div class="grid grid--cols-4 mb-lg">
+        <div id="metric-pageviews"></div>
+        <div id="metric-sessions"></div>
+        <div id="metric-visitors"></div>
+        <div id="metric-engagement"></div>
+      </div>
+
+      <!-- Charts Row -->
+      <div class="grid grid--cols-1 mb-lg">
+        <div class="card">
+          <div class="card__header">
+            <h3 class="card__title">Vues au fil du temps</h3>
+          </div>
+          <div class="card__body">
+            <div id="timeseries-chart" style="height: 300px;"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tables Row -->
+      <div class="grid grid--cols-2">
+        <!-- Top Pages -->
+        <div class="card">
+          <div class="card__header">
+            <h3 class="card__title">Pages les plus consultées</h3>
+          </div>
+          <div class="card__body card--no-padding">
+            <div id="pages-table"></div>
+          </div>
+        </div>
+
+        <!-- Top Events -->
+        <div class="card">
+          <div class="card__header">
+            <h3 class="card__title">Événements principaux</h3>
+          </div>
+          <div class="card__body card--no-padding">
+            <div id="events-table"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <script type="module" src="/js/main.js"></script>
+</body>
+</html>

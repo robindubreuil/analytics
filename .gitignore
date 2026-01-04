@@ -1,0 +1,35 @@
+# Binaries
+analytics-bin
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+analytics
+
+# Database
+*.db
+*.db-shm
+*.db-wal
+
+# Test coverage
+*.out
+coverage.html
+
+# Go workspace cache
+go.work
+
+# Dashboard
+dashboard/node_modules/
+dashboard/dist/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db

@@ -1,0 +1,39 @@
+# Git
+.git
+.gitignore
+
+# Documentation
+*.md
+LICENSE
+
+# Build artifacts
+analytics
+analytics-*
+*.deb
+*.tar.gz
+
+# Test and coverage
+*.out
+*.test
+coverage.html
+coverage.out
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+*~
+
+# CI/CD
+.github
+.claude
+
+# Node (dashboard)
+dashboard/node_modules
+dashboard/dist
+dashboard/.vite
+
+# Database
+*.db
+*.db-*

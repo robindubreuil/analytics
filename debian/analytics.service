@@ -1,0 +1,55 @@
+[Unit]
+Description=Analytics Service - Privacy-focused web analytics
+Documentation=https://github.com/dubreuilpro/analytics
+After=network.target
+Wants=network-online.target
+
+[Service]
+# Security hardening
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/analytics /var/log/analytics
+RemoveIPC=true
+RestrictRealtime=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+MemoryDenyWriteExecute=true
+RestrictNamespaces=true
+LockPersonality=true
+
+# User and group (created by postinst)
+User=analytics
+Group=analytics
+
+# Resource limits
+LimitNOFILE=65536
+TimeoutStartSec=30
+TimeoutStopSec=30
+Restart=on-failure
+RestartSec=5
+
+# Configuration via environment file
+EnvironmentFile=-/etc/default/analytics
+EnvironmentFile=-/etc/analytics/env
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=analytics
+
+# Service command
+ExecStart=/usr/bin/analytics
+ExecReload=/bin/kill -HUP $MAINPID
+
+# Additional hardening
+ProtectControlGroups=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+RestrictSUIDSGID=true
+
+[Install]
+WantedBy=multi-user.target

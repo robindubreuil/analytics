@@ -1,0 +1,62 @@
+#!/usr/bin/make -f
+
+# Uncomment to get verbose build output
+#export DH_VERBOSE=1
+
+# Work around Go's GOPATH behavior in package builds
+export GOCACHE=/tmp/go-build-cache
+export GOMODCACHE=/tmp/go-mod-cache
+
+%:
+	dh $@
+
+# Skip tests during package build (run separately)
+override_dh_auto_test:
+	@echo "Tests skipped during package build"
+
+# Skip dwz for Go binaries
+override_dh_dwz:
+	@echo "Skipping dh_dwz for Go binary"
+
+# Skip auto configure (we don't use autotools)
+override_dh_auto_configure:
+	@echo "Configure not needed for Go"
+
+# Skip installinit (we use systemd, not init scripts)
+override_dh_installinit:
+	@echo "Skipping dh_installinit (systemd only)"
+
+# Override installdeb to control which files are marked as conffiles
+override_dh_installdeb:
+	dh_installdeb
+	# Only mark /etc/default/analytics as a conffile
+	echo "/etc/default/analytics" > debian/analytics/DEBIAN/conffiles
+
+# Build the Go binary
+override_dh_auto_build:
+	go build -o analytics ./cmd/analytics
+
+# Install files manually
+override_dh_auto_install:
+	# Install binary
+	install -D -m 0755 analytics debian/analytics/usr/bin/analytics
+
+	# Install systemd service
+	install -D -m 0644 debian/analytics.service debian/analytics/usr/lib/systemd/system/analytics.service
+
+	# Install default environment file
+	install -D -m 0640 debian/analytics.default debian/analytics/etc/default/analytics
+
+	# Install optional environment file template for secrets
+	install -D -m 0640 debian/analytics.env debian/analytics/etc/analytics/env.dist
+
+	# Install logrotate config
+	install -D -m 0644 debian/analytics.logrotate debian/analytics/etc/logrotate.d/analytics
+
+	# Create state directories
+	install -d -m 0750 debian/analytics/var/lib/analytics
+	install -d -m 0750 debian/analytics/var/log/analytics
+
+override_dh_auto_clean:
+	rm -f analytics
+	rm -rf debian/analytics

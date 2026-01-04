@@ -1,0 +1,22 @@
+# Analytics service configuration
+# Managed by debconf - do not edit manually (use dpkg-reconfigure analytics)
+
+# Server address to listen on
+#ANALYTICS_ADDR=":3001"
+
+# Path to SQLite database
+ANALYTICS_DB_PATH="/var/lib/analytics/analytics.db"
+
+# API key for event ingestion (leave empty to disable authentication)
+# A secure key will be auto-generated on first install
+#ANALYTICS_API_KEY=""
+
+# API key for dashboard access (leave empty to disable authentication)
+# A secure key will be auto-generated on first install
+#ANALYTICS_DASHBOARD_API_KEY=""
+
+# Data retention in days (0 = keep forever)
+ANALYTICS_RETENTION_DAYS="90"
+
+# Maximum open database connections
+#ANALYTICS_MAX_OPEN_CONNS="25"

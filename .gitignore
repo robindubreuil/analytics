@@ -33,3 +33,13 @@ dashboard/dist/
 # OS
 .DS_Store
 Thumbs.db
+
+# Debian packaging
+*.deb
+*.changes
+*.build
+*.dsc
+*.tar.gz
+debian/.debhelper/
+debian/debhelper-build-stamp
+debian/files

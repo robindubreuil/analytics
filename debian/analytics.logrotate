@@ -1,0 +1,13 @@
+/var/log/analytics/*.log {
+    daily
+    rotate 30
+    compress
+    delaycompress
+    missingok
+    notifempty
+    create 0640 analytics analytics
+    sharedscripts
+    postrotate
+        systemctl reload analytics >/dev/null 2>&1 || true
+    endscript
+}

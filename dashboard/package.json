@@ -5,7 +5,8 @@
   "description": "Lightweight analytics dashboard",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "vite build && node scripts/compress-assets.js",
+    "compress": "node scripts/compress-assets.js",
     "preview": "vite preview"
   },
   "devDependencies": {

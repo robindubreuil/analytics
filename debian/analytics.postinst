@@ -1,0 +1,104 @@
+#!/bin/bash
+set -e
+
+case "$1" in
+    configure)
+        # Create analytics system group if it doesn't exist
+        if ! getent group analytics >/dev/null 2>&1; then
+            addgroup --system --quiet analytics || true
+        fi
+
+        # Create analytics system user if it doesn't exist
+        if ! getent passwd analytics >/dev/null 2>&1; then
+            adduser --system \
+                --home /var/lib/analytics \
+                --no-create-home \
+                --gecos "Analytics service" \
+                --ingroup analytics \
+                --disabled-password \
+                analytics || true
+        fi
+
+        # Ensure database directory exists with correct permissions
+        if [ ! -d /var/lib/analytics ]; then
+            mkdir -p /var/lib/analytics
+        fi
+        chown -R analytics:analytics /var/lib/analytics
+        chmod 750 /var/lib/analytics
+
+        # Ensure log directory exists with correct permissions
+        if [ ! -d /var/log/analytics ]; then
+            mkdir -p /var/log/analytics
+        fi
+        chown -R analytics:analytics /var/log/analytics
+        chmod 750 /var/log/analytics
+
+        # Create env file from template if it doesn't exist
+        if [ ! -f /etc/analytics/env ] && [ -f /etc/analytics/env.dist ]; then
+            cp /etc/analytics/env.dist /etc/analytics/env
+            chmod 0640 /etc/analytics/env
+            chown root:analytics /etc/analytics/env
+        fi
+
+        # Generate random API keys if not set and not upgrading
+        if [ -z "$2" ]; then
+            . /etc/default/analytics
+
+            if [ -z "$ANALYTICS_API_KEY" ] || [ "$ANALYTICS_API_KEY" = "" ]; then
+                NEW_KEY=$(openssl rand -base64 32 2>/dev/null || tr -dc 'a-zA-Z0-9' </dev/urandom | head -c 32)
+                sed -i "s|^#ANALYTICS_API_KEY=.*|ANALYTICS_API_KEY=\"$NEW_KEY\"|" /etc/default/analytics
+                sed -i "s|^ANALYTICS_API_KEY=.*|ANALYTICS_API_KEY=\"$NEW_KEY\"|" /etc/default/analytics
+                echo "=========================================="
+                echo "Analytics package installed successfully!"
+                echo "=========================================="
+                echo ""
+                echo "Generated API key for event ingestion:"
+                echo "  $NEW_KEY"
+                echo ""
+                echo "Use this key in your analytics tracking script."
+            fi
+
+            if [ -z "$ANALYTICS_DASHBOARD_API_KEY" ] || [ "$ANALYTICS_DASHBOARD_API_KEY" = "" ]; then
+                NEW_KEY=$(openssl rand -base64 32 2>/dev/null || tr -dc 'a-zA-Z0-9' </dev/urandom | head -c 32)
+                sed -i "s|^#ANALYTICS_DASHBOARD_API_KEY=.*|ANALYTICS_DASHBOARD_API_KEY=\"$NEW_KEY\"|" /etc/default/analytics
+                sed -i "s|^ANALYTICS_DASHBOARD_API_KEY=.*|ANALYTICS_DASHBOARD_API_KEY=\"$NEW_KEY\"|" /etc/default/analytics
+                echo ""
+                echo "Generated API key for dashboard:"
+                echo "  $NEW_KEY"
+                echo ""
+                echo "Use this key to access the dashboard API."
+                echo ""
+                echo "Service status: systemctl status analytics"
+                echo "Configuration: /etc/default/analytics"
+                echo "=========================================="
+            fi
+        fi
+
+        # Enable and start the service
+        if [ -d /run/systemd/system ]; then
+            systemctl daemon-reload >/dev/null 2>&1 || true
+            if [ -z "$2" ]; then
+                # Fresh installation
+                systemctl enable analytics.service >/dev/null 2>&1 || true
+                systemctl start analytics.service >/dev/null 2>&1 || true
+            else
+                # Upgrade
+                systemctl reload-or-restart analytics.service >/dev/null 2>&1 || true
+            fi
+        fi
+        ;;
+
+    triggered)
+        # Trigger post-installation hooks
+        ;;
+
+    abort-upgrade|abort-remove|abort-deconfigure)
+        ;;
+
+    *)
+        echo "postinst called with unknown argument \`$1\'" >&2
+        exit 1
+        ;;
+esac
+
+exit 0

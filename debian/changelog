@@ -1,0 +1,9 @@
+analytics (1.0.0-1) unstable; urgency=medium
+
+  * Initial release
+  * Privacy-focused web analytics service
+  * SQLite-based with systemd integration
+  * Configurable retention policies
+  * Rate limiting and API key authentication
+
+ -- Robin Dubreuil <robin@dubreuil.pro>  Sun, 04 Jan 2026 18:14:49 +0100

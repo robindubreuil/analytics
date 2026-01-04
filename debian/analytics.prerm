@@ -1,0 +1,27 @@
+#!/bin/bash
+set -e
+
+case "$1" in
+    remove|upgrade|deconfigure)
+        if [ -d /run/systemd/system ]; then
+            if [ -f /lib/systemd/system/analytics.service ] || [ -f /etc/systemd/system/analytics.service ]; then
+                # Stop the service before removal
+                if systemctl is-active analytics.service >/dev/null 2>&1; then
+                    systemctl stop analytics.service >/dev/null 2>&1 || true
+                fi
+                # Disable the service
+                systemctl disable analytics.service >/dev/null 2>&1 || true
+            fi
+        fi
+        ;;
+
+    failed-upgrade)
+        ;;
+
+    *)
+        echo "prerm called with unknown argument \`$1\'" >&2
+        exit 1
+        ;;
+esac
+
+exit 0

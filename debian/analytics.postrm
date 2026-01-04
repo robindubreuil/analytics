@@ -1,0 +1,35 @@
+#!/bin/bash
+set -e
+
+case "$1" in
+    purge)
+        # Remove user and group
+        if getent passwd analytics >/dev/null 2>&1; then
+            deluser --system analytics >/dev/null 2>&1 || true
+        fi
+
+        if getent group analytics >/dev/null 2>&1; then
+            delgroup --system analytics >/dev/null 2>&1 || true
+        fi
+
+        # Remove directories (but preserve data by default)
+        # Uncomment to remove data on purge:
+        # rm -rf /var/lib/analytics
+        # rm -rf /var/log/analytics
+
+        # Remove systemd残留
+        if [ -d /run/systemd/system ]; then
+            systemctl daemon-reload >/dev/null 2>&1 || true
+        fi
+        ;;
+
+    remove|upgrade|failed-upgrade|abort-install|abort-upgrade|disappear)
+        ;;
+
+    *)
+        echo "postrm called with unknown argument \`$1\'" >&2
+        exit 1
+        ;;
+esac
+
+exit 0

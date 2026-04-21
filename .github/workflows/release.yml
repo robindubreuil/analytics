@@ -55,7 +55,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: debian-package
-          path: ../analytics_*_amd64.deb
+          path: analytics_*_amd64.deb
 
   release:
     name: Create Release

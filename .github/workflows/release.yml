@@ -37,7 +37,7 @@ jobs:
         with:
           node-version-file: dashboard/package.json
       - name: Install packaging tools
-        run: sudo apt-get update && sudo apt-get install -y dpkg-dev debhelper devscripts brotli
+        run: sudo apt-get update && sudo apt-get install -y dpkg-dev debhelper devscripts brotli build-essential
       - name: Set changelog version
         run: |
           VERSION=${GITHUB_REF_NAME#v}
@@ -46,7 +46,7 @@ jobs:
         working-directory: dashboard
         run: npm ci && npm run build
       - name: Build .deb package
-        run: dpkg-buildpackage -us -uc -b
+        run: dpkg-buildpackage -us -uc -b -d
       - name: Rename package with version
         run: |
           VERSION=${GITHUB_REF_NAME#v}

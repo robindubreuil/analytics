@@ -55,12 +55,12 @@ jobs:
         with:
           node-version-file: dashboard/package.json
       - name: Install packaging tools
-        run: sudo apt-get update && sudo apt-get install -y dpkg-dev debhelper devscripts brotli
+        run: sudo apt-get update && sudo apt-get install -y dpkg-dev debhelper devscripts brotli build-essential
       - name: Build dashboard
         working-directory: dashboard
         run: npm ci && npm run build
       - name: Build .deb package
-        run: dpkg-buildpackage -us -uc -b
+        run: dpkg-buildpackage -us -uc -b -d
       - name: Inspect package
         run: dpkg-deb -c ../analytics_*.deb
       - uses: actions/upload-artifact@v4

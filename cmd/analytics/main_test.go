@@ -72,7 +72,7 @@ func TestShutdownOnSignal(t *testing.T) {
 
 	time.Sleep(50 * time.Millisecond)
 
-	syscall.Kill(syscall.Getpid(), syscall.SIGTERM)
+	_, _ = syscall.Kill(syscall.Getpid(), syscall.SIGTERM)
 
 	select {
 	case <-done:

@@ -12,8 +12,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dubreuilpro/analytics/internal/api"
-	"github.com/dubreuilpro/analytics/internal/db"
+	"github.com/robindubreuil/analytics/internal/api"
+	"github.com/robindubreuil/analytics/internal/db"
 )
 
 // ClientEvent represents the event structure sent by the frontend.

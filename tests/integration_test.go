@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dubreuilpro/analytics/internal/db"
-	"github.com/dubreuilpro/analytics/internal/testutil"
+	"github.com/robindubreuil/analytics/internal/db"
+	"github.com/robindubreuil/analytics/internal/testutil"
 )
 
 func TestIntegration_FullFlow(t *testing.T) {

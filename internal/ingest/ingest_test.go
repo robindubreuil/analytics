@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dubreuilpro/analytics/internal/db"
+	"github.com/robindubreuil/analytics/internal/db"
 )
 
 func openTestDB(t *testing.T) *sql.DB {

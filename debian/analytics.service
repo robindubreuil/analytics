@@ -1,6 +1,6 @@
 [Unit]
 Description=Analytics Service - Privacy-focused web analytics
-Documentation=https://github.com/dubreuilpro/analytics
+Documentation=https://github.com/robindubreuil/analytics
 After=network.target
 Wants=network-online.target
 

@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dubreuilpro/analytics/internal/api"
-	"github.com/dubreuilpro/analytics/internal/db"
-	"github.com/dubreuilpro/analytics/internal/ingest"
+	"github.com/robindubreuil/analytics/internal/api"
+	"github.com/robindubreuil/analytics/internal/db"
+	"github.com/robindubreuil/analytics/internal/ingest"
 )
 
 type TestDB struct {

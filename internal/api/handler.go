@@ -10,7 +10,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/dubreuilpro/analytics/internal/db"
+	"github.com/robindubreuil/analytics/internal/db"
 )
 
 // RespondJSON writes a JSON response.

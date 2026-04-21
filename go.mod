@@ -1,4 +1,4 @@
-module github.com/dubreuilpro/analytics
+module github.com/robindubreuil/analytics
 
 go 1.23
 

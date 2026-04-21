@@ -4,9 +4,9 @@ Priority: optional
 Maintainer: Robin Dubreuil <robin@dubreuil.pro>
 Build-Depends: debhelper-compat (= 13), golang-any (>= 2:1.23~), brotli
 Standards-Version: 4.7.0
-Homepage: https://github.com/dubreuilpro/analytics
-Vcs-Browser: https://github.com/dubreuilpro/analytics
-Vcs-Git: https://github.com/dubreuilpro/analytics.git
+Homepage: https://github.com/robindubreuil/analytics
+Vcs-Browser: https://github.com/robindubreuil/analytics
+Vcs-Git: https://github.com/robindubreuil/analytics.git
 Rules-Requires-Root: no
 
 Package: analytics

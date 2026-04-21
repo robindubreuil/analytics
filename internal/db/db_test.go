@@ -1,4 +1,3 @@
-// Package db provides tests for database operations.
 package db
 
 import (
@@ -9,37 +8,33 @@ import (
 	"time"
 )
 
-// TestHelper creates a test database and cleans up after.
 type TestHelper struct {
 	DB   *sql.DB
 	Path string
 }
 
-// NewTestHelper creates a new test database with a unique path.
 func NewTestHelper(t *testing.T) *TestHelper {
 	t.Helper()
 
-	// Use test name + nanoseconds for uniqueness
 	unique := time.Now().Format("20060102150405") + fmt.Sprintf("%d", time.Now().Nanosecond())
 	path := "/tmp/analytics_test_" + unique + ".db"
 
-	db, err := Open(path)
+	database, err := Open(path)
 	if err != nil {
 		t.Fatalf("Failed to open test database: %v", err)
 	}
 
 	t.Cleanup(func() {
-		db.Close()
+		database.Close()
 		os.Remove(path)
 	})
 
 	return &TestHelper{
-		DB:   db,
+		DB:   database,
 		Path: path,
 	}
 }
 
-// Close closes the database and removes the file.
 func (th *TestHelper) Close(t *testing.T) {
 	t.Helper()
 	if err := th.DB.Close(); err != nil {
@@ -54,7 +49,6 @@ func TestOpen(t *testing.T) {
 	th := NewTestHelper(t)
 	defer th.Close(t)
 
-	// Check that database is open
 	if err := th.DB.Ping(); err != nil {
 		t.Errorf("Failed to ping database: %v", err)
 	}
@@ -79,7 +73,6 @@ func TestMigrate(t *testing.T) {
 	th := NewTestHelper(t)
 	defer th.Close(t)
 
-	// Check that tables were created
 	tables := []string{
 		"events", "sessions", "daily_stats", "page_stats", "event_stats", "schema_migrations",
 	}
@@ -95,18 +88,15 @@ func TestMigrate(t *testing.T) {
 		}
 	}
 
-	// Check migration version
 	var version int
 	err := th.DB.QueryRow("SELECT MAX(version) FROM schema_migrations").Scan(&version)
 	if err != nil {
 		t.Errorf("Failed to get migration version: %v", err)
 	}
-	// Version should be 1 (001_initial.sql)
 	if version != 1 {
 		t.Errorf("Expected migration version 1, got %d", version)
 	}
 
-	// Check migration name was recorded
 	var name string
 	err = th.DB.QueryRow("SELECT name FROM schema_migrations WHERE version = 1").Scan(&name)
 	if err != nil {
@@ -118,10 +108,8 @@ func TestMigrate(t *testing.T) {
 }
 
 func TestMigrateIdempotent(t *testing.T) {
-	// Opening an already migrated database should not fail
 	th := NewTestHelper(t)
 
-	// Close and reopen to trigger migration again
 	if err := th.DB.Close(); err != nil {
 		t.Fatalf("Failed to close database: %v", err)
 	}
@@ -133,7 +121,6 @@ func TestMigrateIdempotent(t *testing.T) {
 	defer db2.Close()
 	th.Close(t)
 
-	// Should still work
 	if err := db2.Ping(); err != nil {
 		t.Errorf("Failed to ping reopened database: %v", err)
 	}
@@ -143,7 +130,6 @@ func TestOptimize(t *testing.T) {
 	th := NewTestHelper(t)
 	defer th.Close(t)
 
-	// Check WAL mode
 	var journalMode string
 	err := th.DB.QueryRow("PRAGMA journal_mode").Scan(&journalMode)
 	if err != nil {
@@ -153,13 +139,12 @@ func TestOptimize(t *testing.T) {
 		t.Errorf("Expected WAL mode, got %s", journalMode)
 	}
 
-	// Check synchronous mode
 	var syncMode string
 	err = th.DB.QueryRow("PRAGMA synchronous").Scan(&syncMode)
 	if err != nil {
 		t.Errorf("Failed to check synchronous mode: %v", err)
 	}
-	if syncMode != "1" { // 1 = NORMAL
+	if syncMode != "1" {
 		t.Errorf("Expected synchronous mode 1 (NORMAL), got %s", syncMode)
 	}
 }
@@ -177,14 +162,12 @@ func TestClose(t *testing.T) {
 		t.Errorf("Failed to close database: %v", err)
 	}
 
-	// Database should be closed now
 	if err := db.Ping(); err == nil {
 		t.Error("Expected error when pinging closed database")
 	}
 }
 
 func TestOpenInCurrentDirectory(t *testing.T) {
-	// Test opening a database in the current directory (no path separators)
 	path := "analytics_test_current_dir.db"
 	defer os.Remove(path)
 
@@ -194,14 +177,12 @@ func TestOpenInCurrentDirectory(t *testing.T) {
 	}
 	defer db.Close()
 
-	// Verify database works
 	if err := db.Ping(); err != nil {
 		t.Errorf("Failed to ping database: %v", err)
 	}
 }
 
 func TestOpenInTmpDirectory(t *testing.T) {
-	// Test opening in /tmp which always exists
 	path := "/tmp/analytics_tmp_test.db"
 	defer os.Remove(path)
 
@@ -237,7 +218,6 @@ func TestNullString(t *testing.T) {
 }
 
 func TestToUTCDate(t *testing.T) {
-	// 2024-01-15 12:30:45 UTC = 1705317045000 ms
 	ms := int64(1705317045000)
 	result := toUTCDate(ms)
 	expected := "2024-01-15"
@@ -247,15 +227,14 @@ func TestToUTCDate(t *testing.T) {
 }
 
 func TestToUTCDateTimezones(t *testing.T) {
-	// Test that timestamps are correctly converted to UTC date
 	tests := []struct {
 		timestamp int64
 		expected  string
 	}{
-		{0, "1970-01-01"},                              // Unix epoch
-		{86400000, "1970-01-02"},                        // 1 day later
-		{-86400000, "1969-12-31"},                       // 1 day before
-		{1704067200000, "2024-01-01"},                  // 2024-01-01 00:00:00 UTC
+		{0, "1970-01-01"},
+		{86400000, "1970-01-02"},
+		{-86400000, "1969-12-31"},
+		{1704067200000, "2024-01-01"},
 	}
 
 	for _, tt := range tests {
@@ -270,9 +249,9 @@ func TestToUTCDateTimezones(t *testing.T) {
 
 func TestIsBusyError(t *testing.T) {
 	tests := []struct {
-		name  string
-		err   error
-		want  bool
+		name string
+		err  error
+		want bool
 	}{
 		{
 			name: "database is locked",
@@ -310,7 +289,6 @@ func TestIsBusyError(t *testing.T) {
 	}
 }
 
-// testError implements error interface for testing.
 type testError struct {
 	msg string
 }

@@ -2,108 +2,68 @@ name: CI
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main]
   pull_request:
-    branches: [main, develop]
+    branches: [main]
 
 jobs:
-  test:
-    name: Test
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.23'
-          cache: true
-
-      - name: Download dependencies
-        run: go mod download
-
-      - name: Run tests
-        run: go test -v -race -cover ./...
-
-      - name: Run tests with coverage
-        run: go test -v -race -coverprofile=coverage.out -covermode=atomic ./...
-
-      - name: Upload coverage
-        uses: codecov/codecov-action@v4
-        with:
-          files: coverage.out
-          fail_ci_if_error: false
-
   lint:
     name: Lint
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v6
         with:
-          go-version: '1.23'
-          cache: true
-
-      - name: Run go vet
-        run: go vet ./...
-
-      - name: Run golangci-lint
-        uses: golangci/golangci-lint-action@v6
+          go-version-file: go.mod
+      - run: go vet ./...
+      - uses: golangci/golangci-lint-action@v6
         with:
           version: latest
           args: --timeout=5m
 
-  build:
-    name: Build
+  test-go:
+    name: Test (Go)
     runs-on: ubuntu-latest
-    needs: [test, lint]
-
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v6
         with:
-          go-version: '1.23'
-          cache: true
+          go-version-file: go.mod
+      - run: go test -v -race -cover ./...
 
-      - name: Build
-        run: make build
-
-      - name: Upload binary
-        uses: actions/upload-artifact@v4
+  test-dashboard:
+    name: Test (Dashboard)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v5
         with:
-          name: analytics-binary
-          path: analytics
+          node-version-file: dashboard/package.json
+      - working-directory: dashboard
+        run: npm ci && npm test
 
   build-deb:
     name: Build Debian Package
     runs-on: ubuntu-latest
-    needs: [test, lint]
-
+    needs: [lint, test-go, test-dashboard]
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Install build dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y dpkg-dev debhelper devscripts
-
-      - name: Build package
-        run: |
-          VERSION=${{ github.ref_type == 'tag' && github.ref_name || 'dev' }}
-          dpkg-buildpackage -us -uc -b
-
-      - name: Upload .deb artifact
-        uses: actions/upload-artifact@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: dashboard/package.json
+      - name: Install packaging tools
+        run: sudo apt-get update && sudo apt-get install -y dpkg-dev debhelper devscripts brotli
+      - name: Build dashboard
+        working-directory: dashboard
+        run: npm ci && npm run build
+      - name: Build .deb package
+        run: dpkg-buildpackage -us -uc -b
+      - name: Inspect package
+        run: dpkg-deb -c ../analytics_*.deb
+      - uses: actions/upload-artifact@v4
         with:
           name: analytics-deb
           path: ../analytics_*.deb

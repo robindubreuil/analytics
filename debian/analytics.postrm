@@ -17,7 +17,7 @@ case "$1" in
         # rm -rf /var/lib/analytics
         # rm -rf /var/log/analytics
 
-        # Remove systemd残留
+        # Remove systemd residuals
         if [ -d /run/systemd/system ]; then
             systemctl daemon-reload >/dev/null 2>&1 || true
         fi

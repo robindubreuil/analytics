@@ -1,85 +1,21 @@
-// Package tests provides integration tests for the analytics service.
 package tests
 
 import (
 	"bytes"
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"net/http/httptest"
-	"os"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/dubreuilpro/analytics/internal/api"
 	"github.com/dubreuilpro/analytics/internal/db"
-	"github.com/dubreuilpro/analytics/internal/ingest"
+	"github.com/dubreuilpro/analytics/internal/testutil"
 )
 
-// TestServer creates a test server with all middleware.
-type TestServer struct {
-	Server   *httptest.Server
-	DB       *sql.DB
-	DashboardKey string
-}
-
-// NewTestServer creates a new test server.
-func NewTestServer(t *testing.T) *TestServer {
-	t.Helper()
-
-	// Use nanoseconds for uniqueness
-	unique := time.Now().Format("20060102150405") + fmt.Sprintf("%d", time.Now().Nanosecond())
-	path := "/tmp/analytics_integration_test_" + unique + ".db"
-	database, err := db.Open(path)
-	if err != nil {
-		t.Fatalf("Failed to open test database: %v", err)
-	}
-
-	t.Cleanup(func() {
-		database.Close()
-		os.Remove(path)
-	})
-
-	// Create handlers
-	ingestHandler := ingest.New(database)
-	dashboardHandler := api.New(database)
-	dashboardKey := "test-dashboard-key"
-	api.SetDashboardKey(dashboardKey)
-
-	// Setup router with middleware
-	mux := http.NewServeMux()
-
-	// Ingest endpoint with rate limiting
-	rateLimiter, _ := api.RateLimiter(100, time.Minute)
-	mux.Handle("/api/analytics", rateLimiter(
-		api.APIKey("test-api-key")(ingestHandler),
-	))
-
-	// Dashboard endpoints
-	dashboardHandler.RegisterRoutes(mux)
-
-	// Apply common middleware
-	var handler http.Handler = mux
-	handler = api.Recovery(handler)
-	handler = api.Logger(handler)
-	handler = api.CORS([]string{"*"})(handler)
-
-	server := httptest.NewServer(handler)
-	t.Cleanup(server.Close)
-
-	return &TestServer{
-		Server:   server,
-		DB:       database,
-		DashboardKey: dashboardKey,
-	}
-}
-
 func TestIntegration_FullFlow(t *testing.T) {
-	ts := NewTestServer(t)
+	ts := testutil.NewTestServer(t)
 
-	// Step 1: Ingest events
 	events := []map[string]any{
 		{
 			"sessionId": "sess1",
@@ -89,14 +25,7 @@ func TestIntegration_FullFlow(t *testing.T) {
 			"title":     "Home Page",
 			"userAgent": "Mozilla/5.0",
 			"timestamp": time.Now().UnixMilli(),
-			"data": map[string]any{
-				"screenWidth":    1920,
-				"screenHeight":   1080,
-				"viewportWidth":  1920,
-				"viewportHeight": 900,
-				"scrollDepth":    0,
-				"engagementTime": 0,
-			},
+			"data":      testDataMap(),
 		},
 		{
 			"sessionId": "sess1",
@@ -117,14 +46,7 @@ func TestIntegration_FullFlow(t *testing.T) {
 			"type":      "pageview",
 			"url":       "/contact",
 			"timestamp": time.Now().UnixMilli(),
-			"data": map[string]any{
-				"screenWidth":    1920,
-				"screenHeight":   1080,
-				"viewportWidth":  1920,
-				"viewportHeight": 900,
-				"scrollDepth":    0,
-				"engagementTime": 0,
-			},
+			"data":      testDataMap(),
 		},
 		{
 			"sessionId": "sess1",
@@ -132,14 +54,7 @@ func TestIntegration_FullFlow(t *testing.T) {
 			"event":     "button_click",
 			"url":       "/about",
 			"timestamp": time.Now().UnixMilli() + 10000,
-			"data": map[string]any{
-				"screenWidth":    1920,
-				"screenHeight":   1080,
-				"viewportWidth":  1920,
-				"viewportHeight": 900,
-				"scrollDepth":    50,
-				"engagementTime": 0,
-			},
+			"data":      testDataMap(),
 		},
 	}
 
@@ -162,7 +77,6 @@ func TestIntegration_FullFlow(t *testing.T) {
 		t.Errorf("Expected status 200, got %d", resp.StatusCode)
 	}
 
-	// Step 2: Check summary
 	today := time.Now().Format("2006-01-02")
 	summaryURL := fmt.Sprintf("%s/api/dashboard/summary?start=%s&end=%s", ts.Server.URL, today, today)
 	req, _ = http.NewRequest("GET", summaryURL, nil)
@@ -187,7 +101,6 @@ func TestIntegration_FullFlow(t *testing.T) {
 		t.Errorf("Expected 3 pageviews, got %v", summary["pageviews"])
 	}
 
-	// Step 3: Check top pages
 	pagesURL := fmt.Sprintf("%s/api/dashboard/pages?start=%s&end=%s", ts.Server.URL, today, today)
 	req, _ = http.NewRequest("GET", pagesURL, nil)
 	req.Header.Set("X-API-Key", ts.DashboardKey)
@@ -197,10 +110,6 @@ func TestIntegration_FullFlow(t *testing.T) {
 		t.Fatalf("Failed to get pages: %v", err)
 	}
 	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		t.Errorf("Expected status 200, got %d", resp.StatusCode)
-	}
 
 	var pagesResp map[string]any
 	if err := json.NewDecoder(resp.Body).Decode(&pagesResp); err != nil {
@@ -212,7 +121,6 @@ func TestIntegration_FullFlow(t *testing.T) {
 		t.Error("Expected at least one page")
 	}
 
-	// Step 4: Check custom events
 	eventsURL := fmt.Sprintf("%s/api/dashboard/events?start=%s&end=%s", ts.Server.URL, today, today)
 	req, _ = http.NewRequest("GET", eventsURL, nil)
 	req.Header.Set("X-API-Key", ts.DashboardKey)
@@ -222,10 +130,6 @@ func TestIntegration_FullFlow(t *testing.T) {
 		t.Fatalf("Failed to get events: %v", err)
 	}
 	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		t.Errorf("Expected status 200, got %d", resp.StatusCode)
-	}
 
 	var eventsResp map[string]any
 	if err := json.NewDecoder(resp.Body).Decode(&eventsResp); err != nil {
@@ -239,7 +143,7 @@ func TestIntegration_FullFlow(t *testing.T) {
 }
 
 func TestIntegration_Authentication(t *testing.T) {
-	ts := NewTestServer(t)
+	ts := testutil.NewTestServer(t)
 
 	tests := []struct {
 		name       string
@@ -251,7 +155,7 @@ func TestIntegration_Authentication(t *testing.T) {
 			name:       "ingest with valid key",
 			endpoint:   "/api/analytics",
 			apiKey:     "test-api-key",
-			expectCode: http.StatusBadRequest, // Valid auth but empty body
+			expectCode: http.StatusBadRequest,
 		},
 		{
 			name:       "ingest with invalid key",
@@ -327,23 +231,15 @@ func TestIntegration_Authentication(t *testing.T) {
 }
 
 func TestIntegration_RateLimiting(t *testing.T) {
-	ts := NewTestServer(t)
+	ts := testutil.NewTestServer(t)
 
-	// Create a valid event
 	event := []map[string]any{
 		{
 			"sessionId": "sess-rate",
 			"type":      "pageview",
 			"url":       "/test",
 			"timestamp": time.Now().UnixMilli(),
-			"data": map[string]any{
-				"screenWidth":    1920,
-				"screenHeight":   1080,
-				"viewportWidth":  1920,
-				"viewportHeight": 900,
-				"scrollDepth":    0,
-				"engagementTime": 0,
-			},
+			"data":      testDataMap(),
 		},
 	}
 
@@ -352,11 +248,11 @@ func TestIntegration_RateLimiting(t *testing.T) {
 	successCount := 0
 	rateLimitedCount := 0
 
-	// Send more requests than the rate limit allows
 	for i := 0; i < 105; i++ {
 		req, _ := http.NewRequest("POST", ts.Server.URL+"/api/analytics", bytes.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("X-API-Key", "test-api-key")
+		req.Header.Set("X-Forwarded-For", "10.0.0.1")
 
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
@@ -371,15 +267,16 @@ func TestIntegration_RateLimiting(t *testing.T) {
 		}
 	}
 
-	if successCount > 100 {
-		t.Logf("Warning: Got %d successful requests (rate limiting may not work consistently in httptest)", successCount)
+	if rateLimitedCount == 0 {
+		t.Errorf("Expected some requests to be rate limited, but all %d succeeded", successCount)
 	}
-	// Note: Due to how httptest.Server handles RemoteAddr, rate limiting per IP
-	// may not work as expected. The middleware is tested separately in middleware_test.go
+	if successCount > 100 {
+		t.Errorf("Expected at most 100 successful requests, got %d", successCount)
+	}
 }
 
 func TestIntegration_CORS(t *testing.T) {
-	ts := NewTestServer(t)
+	ts := testutil.NewTestServer(t)
 
 	req, _ := http.NewRequest("OPTIONS", ts.Server.URL+"/api/analytics", nil)
 	req.Header.Set("Origin", "https://example.com")
@@ -394,7 +291,6 @@ func TestIntegration_CORS(t *testing.T) {
 		t.Errorf("Expected status 204, got %d", resp.StatusCode)
 	}
 
-	// Check CORS headers (wildcard returns *)
 	origin := resp.Header.Get("Access-Control-Allow-Origin")
 	if origin != "*" && origin != "https://example.com" {
 		t.Errorf("Expected origin header (* or https://example.com), got %s", origin)
@@ -405,30 +301,36 @@ func TestIntegration_CORS(t *testing.T) {
 }
 
 func TestIntegration_PanicRecovery(t *testing.T) {
-	ts := NewTestServer(t)
+	ts := testutil.NewTestServer(t)
 
-	// This test verifies that panics are recovered
-	// We can't easily trigger a panic in the handlers,
-	// but the middleware is tested separately
-	req, _ := http.NewRequest("GET", ts.Server.URL+"/api/dashboard/health", nil)
+	req, _ := http.NewRequest("GET", ts.Server.URL+"/api/test-panic", nil)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("Failed to send request: %v", err)
 	}
 	defer resp.Body.Close()
 
-	// Should not panic
+	if resp.StatusCode != http.StatusInternalServerError {
+		t.Errorf("Expected status 500 from panic endpoint, got %d", resp.StatusCode)
+	}
+
+	req, _ = http.NewRequest("GET", ts.Server.URL+"/api/dashboard/health", nil)
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("Failed to send health check after panic: %v", err)
+	}
+	defer resp.Body.Close()
+
 	if resp.StatusCode != http.StatusOK {
-		t.Errorf("Expected status 200, got %d", resp.StatusCode)
+		t.Errorf("Expected status 200 from health after panic, got %d", resp.StatusCode)
 	}
 }
 
 func TestIntegration_SessionAggregation(t *testing.T) {
-	ts := NewTestServer(t)
+	ts := testutil.NewTestServer(t)
 
 	sessionID := "sess-aggregation"
 
-	// Send multiple events for the same session over time
 	events := []map[string]any{
 		{
 			"sessionId": sessionID,
@@ -454,23 +356,22 @@ func TestIntegration_SessionAggregation(t *testing.T) {
 	}
 
 	for _, event := range events {
-			body, _ := json.Marshal([]map[string]any{event})
-			req, _ := http.NewRequest("POST", ts.Server.URL+"/api/analytics", bytes.NewReader(body))
-			req.Header.Set("Content-Type", "application/json")
-			req.Header.Set("X-API-Key", "test-api-key")
+		body, _ := json.Marshal([]map[string]any{event})
+		req, _ := http.NewRequest("POST", ts.Server.URL+"/api/analytics", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-API-Key", "test-api-key")
 
-			resp, err := http.DefaultClient.Do(req)
-			if err != nil {
-				t.Fatalf("Failed to send request: %v", err)
-			}
-			resp.Body.Close()
-
-			if resp.StatusCode != http.StatusOK {
-				t.Errorf("Expected status 200, got %d", resp.StatusCode)
-			}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatalf("Failed to send request: %v", err)
 		}
+		resp.Body.Close()
 
-	// Check session aggregation in database
+		if resp.StatusCode != http.StatusOK {
+			t.Errorf("Expected status 200, got %d", resp.StatusCode)
+		}
+	}
+
 	var pageviews int
 	err := ts.DB.QueryRow("SELECT pageviews FROM sessions WHERE session_id = ?", sessionID).Scan(&pageviews)
 	if err != nil {
@@ -483,9 +384,8 @@ func TestIntegration_SessionAggregation(t *testing.T) {
 }
 
 func TestIntegration_DataRetention(t *testing.T) {
-	ts := NewTestServer(t)
+	ts := testutil.NewTestServer(t)
 
-	// Insert old event directly into database
 	oldTime := time.Now().AddDate(0, 0, -100).UnixMilli()
 	_, err := ts.DB.Exec(
 		"INSERT INTO events (session_id, type, url, timestamp, created_at) VALUES (?, ?, ?, ?, ?)",
@@ -495,7 +395,6 @@ func TestIntegration_DataRetention(t *testing.T) {
 		t.Fatalf("Failed to insert old event: %v", err)
 	}
 
-	// Verify event exists
 	var count int
 	err = ts.DB.QueryRow("SELECT COUNT(*) FROM events").Scan(&count)
 	if err != nil {
@@ -505,7 +404,6 @@ func TestIntegration_DataRetention(t *testing.T) {
 		t.Errorf("Expected 1 event, got %d", count)
 	}
 
-	// Run retention (90 days)
 	deleted, err := db.DeleteOldEvents(ts.DB, 90)
 	if err != nil {
 		t.Fatalf("Failed to delete old events: %v", err)
@@ -515,7 +413,6 @@ func TestIntegration_DataRetention(t *testing.T) {
 		t.Errorf("Expected 1 deleted event, got %d", deleted)
 	}
 
-	// Verify event was deleted
 	err = ts.DB.QueryRow("SELECT COUNT(*) FROM events").Scan(&count)
 	if err != nil {
 		t.Fatalf("Failed to count events: %v", err)
@@ -526,9 +423,8 @@ func TestIntegration_DataRetention(t *testing.T) {
 }
 
 func TestIntegration_MultipleSessions(t *testing.T) {
-	ts := NewTestServer(t)
+	ts := testutil.NewTestServer(t)
 
-	// Create events for multiple sessions
 	numSessions := 50
 	events := make([]map[string]any, numSessions)
 
@@ -558,20 +454,19 @@ func TestIntegration_MultipleSessions(t *testing.T) {
 		t.Errorf("Expected status 200, got %d", resp.StatusCode)
 	}
 
-	// Verify all sessions were created
-	var count int
-	err = ts.DB.QueryRow("SELECT COUNT(*) FROM sessions").Scan(&count)
+	var sessionCount int
+	err = ts.DB.QueryRow("SELECT COUNT(*) FROM sessions").Scan(&sessionCount)
 	if err != nil {
 		t.Fatalf("Failed to count sessions: %v", err)
 	}
 
-	if count != numSessions {
-		t.Errorf("Expected %d sessions, got %d", numSessions, count)
+	if sessionCount != numSessions {
+		t.Errorf("Expected %d sessions, got %d", numSessions, sessionCount)
 	}
 }
 
 func TestIntegration_ConcurrentIngest(t *testing.T) {
-	ts := NewTestServer(t)
+	ts := testutil.NewTestServer(t)
 
 	const numGoroutines = 20
 	const eventsPerGoroutine = 5
@@ -613,12 +508,10 @@ func TestIntegration_ConcurrentIngest(t *testing.T) {
 		}(i)
 	}
 
-	// Wait for all goroutines
 	for i := 0; i < numGoroutines; i++ {
 		<-done
 	}
 
-	// Verify all events were stored
 	var count int
 	err := ts.DB.QueryRow("SELECT COUNT(*) FROM events").Scan(&count)
 	if err != nil {
@@ -632,7 +525,7 @@ func TestIntegration_ConcurrentIngest(t *testing.T) {
 }
 
 func TestIntegration_ErrorResponses(t *testing.T) {
-	ts := NewTestServer(t)
+	ts := testutil.NewTestServer(t)
 
 	tests := []struct {
 		name       string
@@ -697,9 +590,8 @@ func TestIntegration_ErrorResponses(t *testing.T) {
 }
 
 func TestIntegration_Pagination(t *testing.T) {
-	ts := NewTestServer(t)
+	ts := testutil.NewTestServer(t)
 
-	// Create 25 sessions
 	numSessions := 25
 	events := make([]map[string]any, numSessions)
 	now := time.Now().UnixMilli()
@@ -729,11 +621,9 @@ func TestIntegration_Pagination(t *testing.T) {
 		t.Fatalf("Failed to ingest events: %d", resp.StatusCode)
 	}
 
-	// Query sessions with pagination
 	startTime := now - 1000
 	endTime := now + int64(numSessions)*1000 + 1000
 
-	// First page
 	sessionsURL := fmt.Sprintf("%s/api/dashboard/sessions?start=%d&end=%d&limit=10&offset=0",
 		ts.Server.URL, startTime, endTime)
 	req, _ = http.NewRequest("GET", sessionsURL, nil)
@@ -759,7 +649,6 @@ func TestIntegration_Pagination(t *testing.T) {
 		t.Errorf("Expected 10 sessions on first page, got %d", len(sessions1))
 	}
 
-	// Second page
 	sessionsURL = fmt.Sprintf("%s/api/dashboard/sessions?start=%d&end=%d&limit=10&offset=10",
 		ts.Server.URL, startTime, endTime)
 	req, _ = http.NewRequest("GET", sessionsURL, nil)
@@ -786,7 +675,6 @@ func TestIntegration_Pagination(t *testing.T) {
 	}
 }
 
-// Helper function to create test data map
 func testDataMap() map[string]any {
 	return map[string]any{
 		"screenWidth":    1920,

@@ -285,8 +285,6 @@ class AnalyticsAPI {
 }
 
 // Create singleton instance
-const api = new AnalyticsAPI({
-  baseUrl: 'https://analytics.dubreuil.pro/api/dashboard'
-});
+const api = new AnalyticsAPI();
 
 export { AnalyticsAPI, APIError, api as default };

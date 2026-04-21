@@ -60,7 +60,10 @@ export function formatDate(date, locale = 'fr-FR', options = {}) {
 // Format date to ISO (YYYY-MM-DD)
 export function toISODate(date) {
   const d = new Date(date);
-  return d.toISOString().split('T')[0];
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 }
 
 // Get today's date in ISO format
@@ -148,9 +151,12 @@ export function createElement(tag, attrs = {}, children = []) {
 
 // Escape HTML to prevent XSS
 export function escapeHtml(str) {
-  const div = document.createElement('div');
-  div.textContent = str;
-  return div.innerHTML;
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 // Truncate text

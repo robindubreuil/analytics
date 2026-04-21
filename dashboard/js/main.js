@@ -180,7 +180,8 @@ class Dashboard {
             sortable: true,
             truncate: true,
             render: (value) => {
-              return `<a href="${escapeHtml(value)}" class="text-truncate" style="max-width: 300px; display: block;">${escapeHtml(value)}</a>`;
+              const safeUrl = (!value.startsWith('/') && !value.startsWith('http')) ? '#' : escapeHtml(value);
+              return `<a href="${safeUrl}" class="text-truncate" style="max-width: 300px; display: block;">${escapeHtml(value)}</a>`;
             }
           },
           {

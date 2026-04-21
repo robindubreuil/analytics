@@ -66,10 +66,14 @@ class Chart {
     // Get initial dimensions
     this.#updateDimensions();
 
-    // Observe resize
+    // Observe resize (debounced to avoid excessive re-renders)
+    let resizeRaf = null;
     const resizeObserver = new ResizeObserver(() => {
-      this.#updateDimensions();
-      this.render();
+      if (resizeRaf) cancelAnimationFrame(resizeRaf);
+      resizeRaf = requestAnimationFrame(() => {
+        this.#updateDimensions();
+        this.render();
+      });
     });
     resizeObserver.observe(this.container);
 

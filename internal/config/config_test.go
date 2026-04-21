@@ -11,53 +11,20 @@ func TestDefaults(t *testing.T) {
 	cfg := Defaults()
 
 	tests := []struct {
-		name string
+		name  string
 		check func() bool
 	}{
-		{
-			name: "Addr should be :3001",
-			check: func() bool { return cfg.Addr == ":3001" },
-		},
-		{
-			name: "ReadTimeout should be 10s",
-			check: func() bool { return cfg.ReadTimeout == 10*time.Second },
-		},
-		{
-			name: "WriteTimeout should be 10s",
-			check: func() bool { return cfg.WriteTimeout == 10*time.Second },
-		},
-		{
-			name: "DBPath should be ./analytics.db",
-			check: func() bool { return cfg.DBPath == "./analytics.db" },
-		},
-		{
-			name: "MaxOpenConns should be 25",
-			check: func() bool { return cfg.MaxOpenConns == 25 },
-		},
-		{
-			name: "ConnMaxLifetime should be 5m",
-			check: func() bool { return cfg.ConnMaxLifetime == 5*time.Minute },
-		},
-		{
-			name: "ConnMaxIdleTime should be 1m",
-			check: func() bool { return cfg.ConnMaxIdleTime == 1*time.Minute },
-		},
-		{
-			name: "APIKey should be empty",
-			check: func() bool { return cfg.APIKey == "" },
-		},
-		{
-			name: "EnableAnonymousTracking should be true",
-			check: func() bool { return cfg.EnableAnonymousTracking == true },
-		},
-		{
-			name: "RetentionDays should be 90",
-			check: func() bool { return cfg.RetentionDays == 90 },
-		},
-		{
-			name: "DashboardAPIKey should be empty",
-			check: func() bool { return cfg.DashboardAPIKey == "" },
-		},
+		{"Addr should be :3001", func() bool { return cfg.Addr == ":3001" }},
+		{"ReadTimeout should be 10s", func() bool { return cfg.ReadTimeout == 10*time.Second }},
+		{"WriteTimeout should be 10s", func() bool { return cfg.WriteTimeout == 10*time.Second }},
+		{"DBPath should be ./analytics.db", func() bool { return cfg.DBPath == "./analytics.db" }},
+		{"MaxOpenConns should be 25", func() bool { return cfg.MaxOpenConns == 25 }},
+		{"ConnMaxLifetime should be 5m", func() bool { return cfg.ConnMaxLifetime == 5*time.Minute }},
+		{"ConnMaxIdleTime should be 1m", func() bool { return cfg.ConnMaxIdleTime == 1*time.Minute }},
+		{"APIKey should be empty", func() bool { return cfg.APIKey == "" }},
+		{"RetentionDays should be 90", func() bool { return cfg.RetentionDays == 90 }},
+		{"DashboardAPIKey should be empty", func() bool { return cfg.DashboardAPIKey == "" }},
+		{"CORSOrigins should be empty", func() bool { return cfg.CORSOrigins == "" }},
 	}
 
 	for _, tt := range tests {
@@ -70,78 +37,36 @@ func TestDefaults(t *testing.T) {
 }
 
 func TestLoadWithEnvVars(t *testing.T) {
-	// Save original env vars
-	origAddr := os.Getenv("ANALYTICS_ADDR")
-	origDBPath := os.Getenv("ANALYTICS_DB_PATH")
-	origMaxOpen := os.Getenv("ANALYTICS_MAX_OPEN_CONNS")
-	origAPIKey := os.Getenv("ANALYTICS_API_KEY")
-	origDashboardKey := os.Getenv("ANALYTICS_DASHBOARD_API_KEY")
-	origAnon := os.Getenv("ANALYTICS_ENABLE_ANONYMOUS")
-	origRetention := os.Getenv("ANALYTICS_RETENTION_DAYS")
-	origReadTimeout := os.Getenv("ANALYTICS_READ_TIMEOUT")
-	origWriteTimeout := os.Getenv("ANALYTICS_WRITE_TIMEOUT")
+	envVars := []string{
+		"ANALYTICS_ADDR", "ANALYTICS_DB_PATH", "ANALYTICS_MAX_OPEN_CONNS",
+		"ANALYTICS_API_KEY", "ANALYTICS_DASHBOARD_API_KEY", "ANALYTICS_RETENTION_DAYS",
+		"ANALYTICS_READ_TIMEOUT", "ANALYTICS_WRITE_TIMEOUT", "ANALYTICS_CORS_ORIGINS",
+	}
 
+	origValues := make(map[string]string)
+	for _, key := range envVars {
+		origValues[key] = os.Getenv(key)
+	}
 	defer func() {
-		// Restore original env vars
-		if origAddr != "" {
-			os.Setenv("ANALYTICS_ADDR", origAddr)
-		} else {
-			os.Unsetenv("ANALYTICS_ADDR")
-		}
-		if origDBPath != "" {
-			os.Setenv("ANALYTICS_DB_PATH", origDBPath)
-		} else {
-			os.Unsetenv("ANALYTICS_DB_PATH")
-		}
-		if origMaxOpen != "" {
-			os.Setenv("ANALYTICS_MAX_OPEN_CONNS", origMaxOpen)
-		} else {
-			os.Unsetenv("ANALYTICS_MAX_OPEN_CONNS")
-		}
-		if origAPIKey != "" {
-			os.Setenv("ANALYTICS_API_KEY", origAPIKey)
-		} else {
-			os.Unsetenv("ANALYTICS_API_KEY")
-		}
-		if origDashboardKey != "" {
-			os.Setenv("ANALYTICS_DASHBOARD_API_KEY", origDashboardKey)
-		} else {
-			os.Unsetenv("ANALYTICS_DASHBOARD_API_KEY")
-		}
-		if origAnon != "" {
-			os.Setenv("ANALYTICS_ENABLE_ANONYMOUS", origAnon)
-		} else {
-			os.Unsetenv("ANALYTICS_ENABLE_ANONYMOUS")
-		}
-		if origRetention != "" {
-			os.Setenv("ANALYTICS_RETENTION_DAYS", origRetention)
-		} else {
-			os.Unsetenv("ANALYTICS_RETENTION_DAYS")
-		}
-		if origReadTimeout != "" {
-			os.Setenv("ANALYTICS_READ_TIMEOUT", origReadTimeout)
-		} else {
-			os.Unsetenv("ANALYTICS_READ_TIMEOUT")
-		}
-		if origWriteTimeout != "" {
-			os.Setenv("ANALYTICS_WRITE_TIMEOUT", origWriteTimeout)
-		} else {
-			os.Unsetenv("ANALYTICS_WRITE_TIMEOUT")
+		for _, key := range envVars {
+			if origValues[key] != "" {
+				os.Setenv(key, origValues[key])
+			} else {
+				os.Unsetenv(key)
+			}
 		}
 	}()
 
-	// Set test env vars
 	os.Setenv("ANALYTICS_ADDR", ":8080")
 	os.Setenv("ANALYTICS_DB_PATH", "/tmp/test.db")
 	os.Setenv("ANALYTICS_MAX_OPEN_CONNS", "50")
 	os.Setenv("ANALYTICS_API_KEY", "test-api-key")
 	os.Setenv("ANALYTICS_DASHBOARD_API_KEY", "test-dashboard-key")
-	os.Setenv("ANALYTICS_ENABLE_ANONYMOUS", "false")
 	os.Setenv("ANALYTICS_RETENTION_DAYS", "30")
 	os.Setenv("ANALYTICS_READ_TIMEOUT", "30s")
 	os.Setenv("ANALYTICS_WRITE_TIMEOUT", "30s")
+	os.Setenv("ANALYTICS_CORS_ORIGINS", "https://example.com,https://analytics.example.com")
 
-	// Clear args for testing
 	oldArgs := os.Args
 	os.Args = []string{"analytics"}
 	defer func() { os.Args = oldArgs }()
@@ -163,9 +88,6 @@ func TestLoadWithEnvVars(t *testing.T) {
 	if cfg.DashboardAPIKey != "test-dashboard-key" {
 		t.Errorf("Expected DashboardAPIKey test-dashboard-key, got %s", cfg.DashboardAPIKey)
 	}
-	if cfg.EnableAnonymousTracking {
-		t.Errorf("Expected EnableAnonymousTracking false, got %v", cfg.EnableAnonymousTracking)
-	}
 	if cfg.RetentionDays != 30 {
 		t.Errorf("Expected RetentionDays 30, got %d", cfg.RetentionDays)
 	}
@@ -175,13 +97,14 @@ func TestLoadWithEnvVars(t *testing.T) {
 	if cfg.WriteTimeout != 30*time.Second {
 		t.Errorf("Expected WriteTimeout 30s, got %v", cfg.WriteTimeout)
 	}
+	if cfg.CORSOrigins != "https://example.com,https://analytics.example.com" {
+		t.Errorf("Expected CORS origins, got %s", cfg.CORSOrigins)
+	}
 }
 
 func TestLoadWithInvalidEnvVars(t *testing.T) {
-	// Test that invalid env vars are ignored and defaults are used
 	origMaxOpen := os.Getenv("ANALYTICS_MAX_OPEN_CONNS")
 	origRetention := os.Getenv("ANALYTICS_RETENTION_DAYS")
-	origAnon := os.Getenv("ANALYTICS_ENABLE_ANONYMOUS")
 
 	defer func() {
 		if origMaxOpen != "" {
@@ -194,42 +117,27 @@ func TestLoadWithInvalidEnvVars(t *testing.T) {
 		} else {
 			os.Unsetenv("ANALYTICS_RETENTION_DAYS")
 		}
-		if origAnon != "" {
-			os.Setenv("ANALYTICS_ENABLE_ANONYMOUS", origAnon)
-		} else {
-			os.Unsetenv("ANALYTICS_ENABLE_ANONYMOUS")
-		}
 	}()
 
-	// Set invalid env vars
 	os.Setenv("ANALYTICS_MAX_OPEN_CONNS", "invalid")
 	os.Setenv("ANALYTICS_RETENTION_DAYS", "-1")
-	os.Setenv("ANALYTICS_ENABLE_ANONYMOUS", "yes")
 
-	// Clear args for testing
 	oldArgs := os.Args
 	os.Args = []string{"analytics"}
 	defer func() { os.Args = oldArgs }()
 
 	cfg := Load()
 
-	// Should use defaults for invalid values
 	if cfg.MaxOpenConns != 25 {
 		t.Errorf("Expected default MaxOpenConns 25 for invalid input, got %d", cfg.MaxOpenConns)
 	}
 	if cfg.RetentionDays != 90 {
 		t.Errorf("Expected default RetentionDays 90 for invalid input, got %d", cfg.RetentionDays)
 	}
-	// "yes" is not a valid boolean value, so it's ignored and default (true) is kept
-	if cfg.EnableAnonymousTracking != true {
-		t.Errorf("Expected default EnableAnonymousTracking true for invalid value 'yes', got %v", cfg.EnableAnonymousTracking)
-	}
 }
 
 func TestLoadWithInvalidTimeout(t *testing.T) {
-	// Test that invalid timeout values are ignored
 	origReadTimeout := os.Getenv("ANALYTICS_READ_TIMEOUT")
-	origWriteTimeout := os.Getenv("ANALYTICS_WRITE_TIMEOUT")
 
 	defer func() {
 		if origReadTimeout != "" {
@@ -237,71 +145,18 @@ func TestLoadWithInvalidTimeout(t *testing.T) {
 		} else {
 			os.Unsetenv("ANALYTICS_READ_TIMEOUT")
 		}
-		if origWriteTimeout != "" {
-			os.Setenv("ANALYTICS_WRITE_TIMEOUT", origWriteTimeout)
-		} else {
-			os.Unsetenv("ANALYTICS_WRITE_TIMEOUT")
-		}
 	}()
 
 	os.Setenv("ANALYTICS_READ_TIMEOUT", "invalid")
 
-	// Clear args for testing
 	oldArgs := os.Args
 	os.Args = []string{"analytics"}
 	defer func() { os.Args = oldArgs }()
 
 	cfg := Load()
 
-	// Should use default for invalid timeout
 	if cfg.ReadTimeout != 10*time.Second {
 		t.Errorf("Expected default ReadTimeout 10s for invalid input, got %v", cfg.ReadTimeout)
-	}
-}
-
-func TestEnableAnonymousTrackingVariants(t *testing.T) {
-	testCases := []struct {
-		value    string
-		expected bool
-	}{
-		{"true", true},
-		{"TRUE", true},   // case-insensitive
-		{"True", true},   // case-insensitive
-		{"1", true},
-		{"false", false},
-		{"0", false},
-		{"", true},  // empty uses default (true)
-		{"no", true},   // invalid value, uses default (true)
-		{"yes", true},  // invalid value, uses default (true)
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.value, func(t *testing.T) {
-			origAnon := os.Getenv("ANALYTICS_ENABLE_ANONYMOUS")
-			defer func() {
-				if origAnon != "" {
-					os.Setenv("ANALYTICS_ENABLE_ANONYMOUS", origAnon)
-				} else {
-					os.Unsetenv("ANALYTICS_ENABLE_ANONYMOUS")
-				}
-			}()
-
-			if tc.value != "" {
-				os.Setenv("ANALYTICS_ENABLE_ANONYMOUS", tc.value)
-			} else {
-				os.Unsetenv("ANALYTICS_ENABLE_ANONYMOUS")
-			}
-
-			// Clear args for testing
-			oldArgs := os.Args
-			os.Args = []string{"analytics"}
-			defer func() { os.Args = oldArgs }()
-
-			cfg := Load()
-			if cfg.EnableAnonymousTracking != tc.expected {
-				t.Errorf("For value %q, expected %v, got %v", tc.value, tc.expected, cfg.EnableAnonymousTracking)
-			}
-		})
 	}
 }
 
@@ -310,10 +165,10 @@ func TestRetentionDaysZeroAndNegative(t *testing.T) {
 		value    string
 		expected int
 	}{
-		{"0", 0},       // zero means forever
-		{"-1", 90},     // negative uses default
-		{"100", 100},   // valid positive
-		{"365", 365},   // valid larger value
+		{"0", 0},
+		{"-1", 90},
+		{"100", 100},
+		{"365", 365},
 	}
 
 	for _, tc := range testCases {
@@ -329,7 +184,6 @@ func TestRetentionDaysZeroAndNegative(t *testing.T) {
 
 			os.Setenv("ANALYTICS_RETENTION_DAYS", tc.value)
 
-			// Clear args for testing
 			oldArgs := os.Args
 			os.Args = []string{"analytics"}
 			defer func() { os.Args = oldArgs }()
@@ -347,10 +201,10 @@ func TestMaxOpenConnsValidation(t *testing.T) {
 		value    string
 		expected int
 	}{
-		{"0", 25},     // zero uses default
-		{"-1", 25},    // negative uses default
-		{"1", 1},      // minimum valid
-		{"100", 100},  // valid
+		{"0", 25},
+		{"-1", 25},
+		{"1", 1},
+		{"100", 100},
 	}
 
 	for _, tc := range testCases {
@@ -366,7 +220,6 @@ func TestMaxOpenConnsValidation(t *testing.T) {
 
 			os.Setenv("ANALYTICS_MAX_OPEN_CONNS", tc.value)
 
-			// Clear args for testing
 			oldArgs := os.Args
 			os.Args = []string{"analytics"}
 			defer func() { os.Args = oldArgs }()
@@ -376,5 +229,28 @@ func TestMaxOpenConnsValidation(t *testing.T) {
 				t.Errorf("For value %q, expected %d, got %d", tc.value, tc.expected, cfg.MaxOpenConns)
 			}
 		})
+	}
+}
+
+func TestCORSOriginsDefault(t *testing.T) {
+	origCORS := os.Getenv("ANALYTICS_CORS_ORIGINS")
+	defer func() {
+		if origCORS != "" {
+			os.Setenv("ANALYTICS_CORS_ORIGINS", origCORS)
+		} else {
+			os.Unsetenv("ANALYTICS_CORS_ORIGINS")
+		}
+	}()
+
+	os.Unsetenv("ANALYTICS_CORS_ORIGINS")
+
+	oldArgs := os.Args
+	os.Args = []string{"analytics"}
+	defer func() { os.Args = oldArgs }()
+
+	cfg := Load()
+
+	if cfg.CORSOrigins != "*" {
+		t.Errorf("Expected default CORSOrigins '*', got %s", cfg.CORSOrigins)
 	}
 }

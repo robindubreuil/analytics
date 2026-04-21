@@ -112,7 +112,7 @@ func TestAPIKeyWithInvalidKey(t *testing.T) {
 	}
 }
 
-func TestAPIKeyQueryTakesPrecedence(t *testing.T) {
+func TestAPIKeyHeaderTakesPrecedence(t *testing.T) {
 	handler := APIKey("secret-key")(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -123,9 +123,8 @@ func TestAPIKeyQueryTakesPrecedence(t *testing.T) {
 
 	handler.ServeHTTP(w, req)
 
-	// Query param should be checked first, so wrong-key fails
-	if w.Code != http.StatusUnauthorized {
-		t.Errorf("Expected status 401 when query param is wrong, got %d", w.Code)
+	if w.Code != http.StatusOK {
+		t.Errorf("Expected status 200 when header has correct key (header takes precedence), got %d", w.Code)
 	}
 }
 

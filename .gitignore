@@ -7,6 +7,10 @@ analytics-bin
 *.dylib
 analytics
 
+# Build artifacts
+_build/
+*.tar.xz
+
 # Database
 *.db
 *.db-shm
@@ -26,6 +30,7 @@ dashboard/dist/
 # IDE
 .vscode/
 .idea/
+.claude/
 *.swp
 *.swo
 *~
@@ -40,6 +45,11 @@ Thumbs.db
 *.build
 *.dsc
 *.tar.gz
+*.xz
 debian/.debhelper/
 debian/debhelper-build-stamp
 debian/files
+debian/analytics/
+debian/*.debhelper.log
+debian/*.substvars
+debian/*.debhelper

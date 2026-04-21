@@ -4,6 +4,7 @@ package db
 import (
 	"database/sql"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -70,8 +71,7 @@ type EventStats struct {
 
 // StoreEvents inserts a batch of events into the database.
 // Returns the number of events successfully stored.
-// Implements retry logic with exponential backoff for SQLITE_BUSY errors.
-func StoreEvents(db *sql.DB, events []Event) (int, error) {
+func StoreEvents(database *sql.DB, events []Event) (int, error) {
 	if len(events) == 0 {
 		return 0, nil
 	}
@@ -81,12 +81,11 @@ func StoreEvents(db *sql.DB, events []Event) (int, error) {
 
 	for attempt := 0; attempt < maxRetries; attempt++ {
 		if attempt > 0 {
-			// Exponential backoff: 10ms, 20ms, 40ms, 80ms
 			backoff := 10 * (1 << (attempt - 1))
 			time.Sleep(time.Duration(backoff) * time.Millisecond)
 		}
 
-		tx, err := db.Begin()
+		tx, err := database.Begin()
 		if err != nil {
 			if isBusyError(err) && attempt < maxRetries-1 {
 				lastErr = err
@@ -97,7 +96,7 @@ func StoreEvents(db *sql.DB, events []Event) (int, error) {
 
 		count, err := storeEventsInTx(tx, events)
 		if err != nil {
-			_ = tx.Rollback() // Best effort rollback
+			_ = tx.Rollback()
 			if isBusyError(err) && attempt < maxRetries-1 {
 				lastErr = err
 				continue
@@ -106,7 +105,7 @@ func StoreEvents(db *sql.DB, events []Event) (int, error) {
 		}
 
 		if err := tx.Commit(); err != nil {
-			_ = tx.Rollback() // Clean up transaction state before retry (best effort)
+			_ = tx.Rollback()
 			if isBusyError(err) && attempt < maxRetries-1 {
 				lastErr = err
 				continue
@@ -142,7 +141,7 @@ func storeEventsInTx(tx *sql.Tx, events []Event) (int, error) {
 			total_engagement, max_scroll_depth, entry_url, exit_url, referrer, user_agent
 		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(session_id) DO UPDATE SET
-			last_seen = excluded.last_seen,
+			last_seen = CASE WHEN excluded.last_seen > last_seen THEN excluded.last_seen ELSE last_seen END,
 			pageviews = pageviews + excluded.pageviews,
 			events = events + excluded.events,
 			total_engagement = total_engagement + excluded.total_engagement,
@@ -158,17 +157,37 @@ func storeEventsInTx(tx *sql.Tx, events []Event) (int, error) {
 		INSERT INTO daily_stats (
 			date, pageviews, sessions, unique_visitors,
 			total_engagement, bounced_sessions
-		) VALUES (?, ?, 1, 1, ?, 0)
+		) VALUES (?, ?, 0, 0, ?, 0)
 		ON CONFLICT(date) DO UPDATE SET
 			pageviews = pageviews + excluded.pageviews,
-			sessions = sessions + excluded.sessions,
-			unique_visitors = unique_visitors + excluded.unique_visitors,
 			total_engagement = total_engagement + excluded.total_engagement
 	`)
 	if err != nil {
 		return 0, fmt.Errorf("prepare daily upsert: %w", err)
 	}
 	defer dailyStmt.Close()
+
+	sessionCheckStmt, err := tx.Prepare(`
+		SELECT 1 FROM sessions WHERE session_id = ?
+	`)
+	if err != nil {
+		return 0, fmt.Errorf("prepare session check: %w", err)
+	}
+	defer sessionCheckStmt.Close()
+
+	dailyNewSessionStmt, err := tx.Prepare(`
+		INSERT INTO daily_stats (
+			date, pageviews, sessions, unique_visitors,
+			total_engagement, bounced_sessions
+		) VALUES (?, 0, 1, 1, 0, 0)
+		ON CONFLICT(date) DO UPDATE SET
+			sessions = sessions + 1,
+			unique_visitors = unique_visitors + 1
+	`)
+	if err != nil {
+		return 0, fmt.Errorf("prepare daily new session: %w", err)
+	}
+	defer dailyNewSessionStmt.Close()
 
 	pageStmt, err := tx.Prepare(`
 		INSERT INTO page_stats (
@@ -177,8 +196,8 @@ func storeEventsInTx(tx *sql.Tx, events []Event) (int, error) {
 		) VALUES (?, ?, 1, 1, ?, ?, 0)
 		ON CONFLICT(url, date) DO UPDATE SET
 			pageviews = pageviews + 1,
-			sessions = sessions + excluded.sessions,
-			avg_engagement = (avg_engagement * (sessions - 1) + excluded.avg_engagement) / sessions,
+			sessions = sessions + 1,
+			avg_engagement = (avg_engagement * (pageviews - 1) + excluded.avg_engagement) / pageviews,
 			max_scroll_depth = MAX(max_scroll_depth, excluded.max_scroll_depth)
 	`)
 	if err != nil {
@@ -197,7 +216,28 @@ func storeEventsInTx(tx *sql.Tx, events []Event) (int, error) {
 	}
 	defer eventStmt2.Close()
 
-	// Group events by session for efficient session updates
+	bounceStmt, err := tx.Prepare(`
+		INSERT INTO daily_stats (date, pageviews, sessions, unique_visitors, total_engagement, bounced_sessions)
+		VALUES (?, 0, 0, 0, 0, 0)
+		ON CONFLICT(date) DO UPDATE SET
+			bounced_sessions = bounced_sessions - 1
+	`)
+	if err != nil {
+		return 0, fmt.Errorf("prepare bounce decrement: %w", err)
+	}
+	defer bounceStmt.Close()
+
+	bounceIncStmt, err := tx.Prepare(`
+		INSERT INTO daily_stats (date, pageviews, sessions, unique_visitors, total_engagement, bounced_sessions)
+		VALUES (?, 0, 0, 0, 0, 1)
+		ON CONFLICT(date) DO UPDATE SET
+			bounced_sessions = bounced_sessions + 1
+	`)
+	if err != nil {
+		return 0, fmt.Errorf("prepare bounce increment: %w", err)
+	}
+	defer bounceIncStmt.Close()
+
 	sessionEvents := make(map[string][]Event)
 	for _, e := range events {
 		sessionEvents[e.SessionID] = append(sessionEvents[e.SessionID], e)
@@ -205,7 +245,6 @@ func storeEventsInTx(tx *sql.Tx, events []Event) (int, error) {
 
 	count := 0
 	for _, e := range events {
-		// Insert event
 		_, err := eventStmt.Exec(
 			e.SessionID, e.Type, nullString(e.EventName), e.URL,
 			nullString(e.Referrer), nullString(e.Title), nullString(e.UserAgent),
@@ -218,8 +257,8 @@ func storeEventsInTx(tx *sql.Tx, events []Event) (int, error) {
 		count++
 	}
 
-	// Update sessions
 	for sessionID, sessEvents := range sessionEvents {
+		sortEventsByTimestamp(sessEvents)
 		firstEvent := sessEvents[0]
 		lastEvent := sessEvents[len(sessEvents)-1]
 
@@ -240,10 +279,16 @@ func storeEventsInTx(tx *sql.Tx, events []Event) (int, error) {
 			}
 		}
 
-		// Count sessions for daily stats
 		date := toUTCDate(firstEvent.Timestamp)
 
-		_, err := sessionStmt.Exec(
+		var existingSession int
+		isNewSession := true
+		err := sessionCheckStmt.QueryRow(sessionID).Scan(&existingSession)
+		if err == nil {
+			isNewSession = false
+		}
+
+		_, err = sessionStmt.Exec(
 			sessionID, firstEvent.Timestamp, lastEvent.Timestamp,
 			pageviews, customEvents, totalEngagement, maxScrollDepth,
 			firstEvent.URL, lastEvent.URL,
@@ -253,18 +298,37 @@ func storeEventsInTx(tx *sql.Tx, events []Event) (int, error) {
 			return count, fmt.Errorf("upsert session: %w", err)
 		}
 
-		// Update daily stats (one session per unique session_id)
 		_, err = dailyStmt.Exec(date, pageviews, totalEngagement)
 		if err != nil {
-			return count, fmt.Errorf("upsert daily: %w", err)
+			return count, fmt.Errorf("upsert daily stats: %w", err)
 		}
 
-		// Update page stats
+		if isNewSession {
+			_, err = dailyNewSessionStmt.Exec(date)
+			if err != nil {
+				return count, fmt.Errorf("upsert daily new session: %w", err)
+			}
+
+			if pageviews <= 1 && customEvents == 0 && totalEngagement < 10 {
+				_, err = bounceIncStmt.Exec(date)
+				if err != nil {
+					return count, fmt.Errorf("upsert bounce increment: %w", err)
+				}
+			}
+		} else {
+			prevPageviews := 0
+			var prevEngagement int
+			err := tx.QueryRow(`SELECT pageviews, total_engagement FROM sessions WHERE session_id = ?`, sessionID).Scan(&prevPageviews, &prevEngagement)
+			if err == nil && prevPageviews <= 1 && prevEngagement < 10 {
+				_, _ = bounceStmt.Exec(date)
+			}
+		}
+
 		for _, e := range sessEvents {
 			if e.Type == "pageview" {
 				_, err := pageStmt.Exec(
 					e.URL, toUTCDate(e.Timestamp),
-					totalEngagement, maxScrollDepth,
+					e.EngagementTime, e.ScrollDepth,
 				)
 				if err != nil {
 					return count, fmt.Errorf("upsert page: %w", err)
@@ -272,7 +336,6 @@ func storeEventsInTx(tx *sql.Tx, events []Event) (int, error) {
 			}
 		}
 
-		// Update event stats
 		for _, e := range sessEvents {
 			if e.Type == "event" && e.EventName != "" {
 				_, err := eventStmt2.Exec(e.EventName, toUTCDate(e.Timestamp))
@@ -287,10 +350,10 @@ func storeEventsInTx(tx *sql.Tx, events []Event) (int, error) {
 }
 
 // GetSummary retrieves summary statistics for a date range.
-func GetSummary(db *sql.DB, startDate, endDate string) (*DailyStats, error) {
+func GetSummary(database *sql.DB, startDate, endDate string) (*DailyStats, error) {
 	var stats DailyStats
 
-	err := db.QueryRow(`
+	err := database.QueryRow(`
 		SELECT
 			COALESCE(SUM(pageviews), 0) as pageviews,
 			COALESCE(SUM(sessions), 0) as sessions,
@@ -313,8 +376,8 @@ func GetSummary(db *sql.DB, startDate, endDate string) (*DailyStats, error) {
 }
 
 // GetTimeSeries retrieves daily statistics for a date range.
-func GetTimeSeries(db *sql.DB, startDate, endDate string) ([]DailyStats, error) {
-	rows, err := db.Query(`
+func GetTimeSeries(database *sql.DB, startDate, endDate string) ([]DailyStats, error) {
+	rows, err := database.Query(`
 		SELECT date, pageviews, sessions, unique_visitors,
 			COALESCE(total_engagement / NULLIF(sessions, 0), 0) as avg_engagement,
 			total_engagement, bounced_sessions
@@ -341,10 +404,10 @@ func GetTimeSeries(db *sql.DB, startDate, endDate string) ([]DailyStats, error) 
 }
 
 // GetTopPages retrieves top pages by pageviews for a date range.
-func GetTopPages(db *sql.DB, startDate, endDate string, limit int) ([]PageStats, error) {
-	rows, err := db.Query(`
+func GetTopPages(database *sql.DB, startDate, endDate string, limit int) ([]PageStats, error) {
+	rows, err := database.Query(`
 		SELECT url, SUM(pageviews) as pageviews, SUM(sessions) as sessions,
-			COALESCE(SUM(avg_engagement * sessions) / NULLIF(SUM(sessions), 0), 0) as avg_engagement,
+			COALESCE(SUM(avg_engagement * pageviews) / NULLIF(SUM(pageviews), 0), 0) as avg_engagement,
 			COALESCE(MAX(max_scroll_depth), 0) as max_scroll_depth
 		FROM page_stats
 		WHERE date >= ? AND date <= ?
@@ -371,8 +434,8 @@ func GetTopPages(db *sql.DB, startDate, endDate string, limit int) ([]PageStats,
 }
 
 // GetTopEvents retrieves top custom events by count for a date range.
-func GetTopEvents(db *sql.DB, startDate, endDate string, limit int) ([]EventStats, error) {
-	rows, err := db.Query(`
+func GetTopEvents(database *sql.DB, startDate, endDate string, limit int) ([]EventStats, error) {
+	rows, err := database.Query(`
 		SELECT event_name, SUM(count) as count
 		FROM event_stats
 		WHERE date >= ? AND date <= ?
@@ -398,8 +461,8 @@ func GetTopEvents(db *sql.DB, startDate, endDate string, limit int) ([]EventStat
 }
 
 // GetSessions retrieves sessions within a time range.
-func GetSessions(db *sql.DB, startTime, endTime int64, limit, offset int) ([]Session, error) {
-	rows, err := db.Query(`
+func GetSessions(database *sql.DB, startTime, endTime int64, limit, offset int) ([]Session, error) {
+	rows, err := database.Query(`
 		SELECT session_id, first_seen, last_seen, pageviews, events,
 			total_engagement, max_scroll_depth, entry_url, exit_url, referrer, user_agent
 		FROM sessions
@@ -430,15 +493,14 @@ func GetSessions(db *sql.DB, startTime, endTime int64, limit, offset int) ([]Ses
 }
 
 // DeleteOldEvents removes raw events older than the specified number of days.
-// Returns the number of events deleted.
-func DeleteOldEvents(db *sql.DB, retentionDays int) (int64, error) {
+func DeleteOldEvents(database *sql.DB, retentionDays int) (int64, error) {
 	if retentionDays <= 0 {
 		return 0, nil
 	}
 
 	cutoffTime := time.Now().AddDate(0, 0, -retentionDays).UnixMilli()
 
-	result, err := db.Exec(`DELETE FROM events WHERE timestamp < ?`, cutoffTime)
+	result, err := database.Exec(`DELETE FROM events WHERE timestamp < ?`, cutoffTime)
 	if err != nil {
 		return 0, fmt.Errorf("delete old events: %w", err)
 	}
@@ -447,12 +509,11 @@ func DeleteOldEvents(db *sql.DB, retentionDays int) (int64, error) {
 }
 
 // Vacuum runs VACUUM to reclaim database space.
-func Vacuum(db *sql.DB) error {
-	_, err := db.Exec(`VACUUM`)
+func Vacuum(database *sql.DB) error {
+	_, err := database.Exec(`VACUUM`)
 	return err
 }
 
-// Helper: convert empty string to NULL for database
 func nullString(s string) interface{} {
 	if s == "" {
 		return nil
@@ -460,19 +521,25 @@ func nullString(s string) interface{} {
 	return s
 }
 
-// Helper: convert unix milliseconds to UTC date (YYYY-MM-DD)
 func toUTCDate(ms int64) string {
 	return time.UnixMilli(ms).UTC().Format("2006-01-02")
 }
 
-// Helper: check if error is a SQLite busy error
+var sqliteBusyRe = regexp.MustCompile(`(?i)(database is locked|SQLITE_BUSY|sqlite busy)`)
+
 func isBusyError(err error) bool {
 	if err == nil {
 		return false
 	}
-	// Check for SQLITE_BUSY (error code 5) or "database is locked" message
 	errMsg := err.Error()
-	return strings.Contains(errMsg, "database is locked") ||
-		strings.Contains(errMsg, "SQLITE_BUSY") ||
+	return sqliteBusyRe.MatchString(errMsg) ||
 		strings.Contains(errMsg, "(5)")
+}
+
+func sortEventsByTimestamp(events []Event) {
+	for i := 1; i < len(events); i++ {
+		for j := i; j > 0 && events[j].Timestamp < events[j-1].Timestamp; j-- {
+			events[j], events[j-1] = events[j-1], events[j]
+		}
+	}
 }

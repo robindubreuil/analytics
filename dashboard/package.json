@@ -7,9 +7,12 @@
     "dev": "vite",
     "build": "vite build && node scripts/compress-assets.js",
     "compress": "node scripts/compress-assets.js",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "devDependencies": {
-    "vite": "^7.1.10"
+    "vite": "^7.1.10",
+    "vitest": "^4.1.5"
   }
 }

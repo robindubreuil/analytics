@@ -10,25 +10,23 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"time"
 
+	"github.com/dubreuilpro/analytics/internal/api"
 	"github.com/dubreuilpro/analytics/internal/db"
 )
 
-// Global semaphore to limit concurrent database writes.
-// SQLite handles concurrent writes poorly, so we limit to 3 concurrent writes.
-var writeSemaphore = make(chan struct{}, 3)
-
 // ClientEvent represents the event structure sent by the frontend.
 type ClientEvent struct {
-	SessionID      string            `json:"sessionId"`
-	Type           string            `json:"type"`            // "pageview" or "event"
-	Event          string            `json:"event,omitempty"` // event name for type="event"
-	URL            string            `json:"url"`
-	Referrer       string            `json:"referrer"`
-	Title          string            `json:"title,omitempty"`
-	UserAgent      string            `json:"userAgent"`
-	Timestamp      int64             `json:"timestamp"`
-	Data           ClientEventData   `json:"data"`
+	SessionID string          `json:"sessionId"`
+	Type      string          `json:"type"`
+	Event     string          `json:"event,omitempty"`
+	URL       string          `json:"url"`
+	Referrer  string          `json:"referrer"`
+	Title     string          `json:"title,omitempty"`
+	UserAgent string          `json:"userAgent"`
+	Timestamp int64           `json:"timestamp"`
+	Data      ClientEventData `json:"data"`
 }
 
 // ClientEventData holds the data object from client events.
@@ -41,89 +39,95 @@ type ClientEventData struct {
 	EngagementTime int `json:"engagementTime"`
 }
 
-// ErrorResponse represents an error response.
-type ErrorResponse struct {
-	Error   string `json:"error"`
-	Message string `json:"message,omitempty"`
-}
-
 // Handler handles analytics event ingestion.
 type Handler struct {
-	db *sql.DB
+	db       *sql.DB
+	sem      chan struct{}
+	maxBatch int
 }
 
 // New creates a new ingest handler.
-func New(database *sql.DB) *Handler {
-	return &Handler{db: database}
+func New(database *sql.DB, maxConcurrentWrites int) *Handler {
+	if maxConcurrentWrites <= 0 {
+		maxConcurrentWrites = 3
+	}
+	return &Handler{
+		db:       database,
+		sem:      make(chan struct{}, maxConcurrentWrites),
+		maxBatch: 100,
+	}
 }
 
 // ServeHTTP implements the http.Handler interface.
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		h.respondError(w, http.StatusMethodNotAllowed, "method_not_allowed", "Only POST is allowed")
+		api.RespondError(w, http.StatusMethodNotAllowed, "method_not_allowed", "Only POST is allowed")
 		return
 	}
 
-	// Read body with size limit (max 1MB)
 	limitedReader := io.LimitReader(r.Body, 1<<20)
 	body, err := io.ReadAll(limitedReader)
 	if err != nil {
-		h.respondError(w, http.StatusBadRequest, "read_error", "Failed to read request body")
+		api.RespondError(w, http.StatusBadRequest, "read_error", "Failed to read request body")
 		return
 	}
 	defer r.Body.Close()
 
 	if len(body) == 0 {
-		h.respondError(w, http.StatusBadRequest, "empty_body", "Request body is empty")
+		api.RespondError(w, http.StatusBadRequest, "empty_body", "Request body is empty")
 		return
 	}
 
-	// Parse JSON array
 	var clientEvents []ClientEvent
 	if err := json.Unmarshal(body, &clientEvents); err != nil {
-		h.respondError(w, http.StatusBadRequest, "invalid_json", "Failed to parse JSON")
+		api.RespondError(w, http.StatusBadRequest, "invalid_json", "Failed to parse JSON")
 		return
 	}
 
 	if len(clientEvents) == 0 {
-		h.respondError(w, http.StatusBadRequest, "no_events", "No events in request")
+		api.RespondError(w, http.StatusBadRequest, "no_events", "No events in request")
 		return
 	}
 
-	// Validate and convert events
-	events, validationErr := h.validateAndConvert(clientEvents)
+	if len(clientEvents) > h.maxBatch {
+		api.RespondError(w, http.StatusBadRequest, "too_many_events", fmt.Sprintf("Batch size exceeds maximum of %d", h.maxBatch))
+		return
+	}
+
+	events, validationErr := validateAndConvert(clientEvents)
 	if validationErr != nil {
-		h.respondError(w, http.StatusBadRequest, "validation_error", validationErr.Error())
+		api.RespondError(w, http.StatusBadRequest, "validation_error", validationErr.Error())
 		return
 	}
 
-	// Acquire semaphore to limit concurrent database writes
-	writeSemaphore <- struct{}{}
-	defer func() { <-writeSemaphore }()
+	h.sem <- struct{}{}
+	defer func() { <-h.sem }()
 
-	// Store events
 	count, err := db.StoreEvents(h.db, events)
 	if err != nil {
 		log.Printf("[Ingest] Failed to store events: %v", err)
-		h.respondError(w, http.StatusInternalServerError, "storage_error", "Failed to store events")
+		api.RespondError(w, http.StatusInternalServerError, "storage_error", "Failed to store events")
 		return
 	}
 
-	h.respondJSON(w, http.StatusOK, map[string]any{
+	api.RespondJSON(w, http.StatusOK, map[string]any{
 		"success": true,
 		"count":   count,
 	})
 }
 
 // validateAndConvert validates client events and converts them to db.Events.
-func (h *Handler) validateAndConvert(clientEvents []ClientEvent) ([]db.Event, error) {
+func validateAndConvert(clientEvents []ClientEvent) ([]db.Event, error) {
 	events := make([]db.Event, 0, len(clientEvents))
 
 	var errs []string
 	for i, e := range clientEvents {
-		// Validate required fields
 		if e.SessionID == "" {
 			errs = append(errs, fmt.Sprintf("event %d: missing sessionId", i))
+			continue
+		}
+		if len(e.SessionID) > 128 {
+			errs = append(errs, fmt.Sprintf("event %d: sessionId too long (max 128)", i))
 			continue
 		}
 		if e.Type == "" {
@@ -139,13 +143,19 @@ func (h *Handler) validateAndConvert(clientEvents []ClientEvent) ([]db.Event, er
 			continue
 		}
 
-		// Validate type
+		ts := time.UnixMilli(e.Timestamp)
+		now := time.Now()
+		minTime := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
+		if ts.After(now.Add(time.Hour)) || ts.Before(minTime) {
+			errs = append(errs, fmt.Sprintf("event %d: timestamp out of valid range", i))
+			continue
+		}
+
 		if e.Type != "pageview" && e.Type != "event" {
 			errs = append(errs, fmt.Sprintf("event %d: invalid type '%s'", i, e.Type))
 			continue
 		}
 
-		// Validate event name for custom events
 		eventName := ""
 		if e.Type == "event" {
 			if e.Event == "" {
@@ -155,20 +165,22 @@ func (h *Handler) validateAndConvert(clientEvents []ClientEvent) ([]db.Event, er
 			eventName = sanitizeEventName(e.Event)
 		}
 
-		// Sanitize URL (prevent excessively long URLs)
 		if len(e.URL) > 2048 {
 			e.URL = e.URL[:2048]
 		}
-
-		// Sanitize referrer
 		if len(e.Referrer) > 2048 {
 			e.Referrer = e.Referrer[:2048]
 		}
-
-		// Sanitize user agent
 		if len(e.UserAgent) > 500 {
 			e.UserAgent = e.UserAgent[:500]
 		}
+
+		screenW := clampPositive(e.Data.ScreenWidth)
+		screenH := clampPositive(e.Data.ScreenHeight)
+		viewW := clampPositive(e.Data.ViewportWidth)
+		viewH := clampPositive(e.Data.ViewportHeight)
+		scrollD := clampPositive(e.Data.ScrollDepth)
+		engageT := clampPositive(e.Data.EngagementTime)
 
 		events = append(events, db.Event{
 			SessionID:      e.SessionID,
@@ -179,12 +191,12 @@ func (h *Handler) validateAndConvert(clientEvents []ClientEvent) ([]db.Event, er
 			Title:          e.Title,
 			UserAgent:      e.UserAgent,
 			Timestamp:      e.Timestamp,
-			ScreenWidth:    e.Data.ScreenWidth,
-			ScreenHeight:   e.Data.ScreenHeight,
-			ViewportWidth:  e.Data.ViewportWidth,
-			ViewportHeight: e.Data.ViewportHeight,
-			ScrollDepth:    e.Data.ScrollDepth,
-			EngagementTime: e.Data.EngagementTime,
+			ScreenWidth:    screenW,
+			ScreenHeight:   screenH,
+			ViewportWidth:  viewW,
+			ViewportHeight: viewH,
+			ScrollDepth:    scrollD,
+			EngagementTime: engageT,
 		})
 	}
 
@@ -195,9 +207,14 @@ func (h *Handler) validateAndConvert(clientEvents []ClientEvent) ([]db.Event, er
 	return events, nil
 }
 
-// sanitizeEventName removes potentially dangerous characters from event names.
+func clampPositive(v int) int {
+	if v < 0 {
+		return 0
+	}
+	return v
+}
+
 func sanitizeEventName(name string) string {
-	// Allow alphanumeric, underscore, dash, and dot
 	var result strings.Builder
 	for _, c := range name {
 		if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
@@ -208,31 +225,4 @@ func sanitizeEventName(name string) string {
 		}
 	}
 	return result.String()
-}
-
-// respondJSON writes a JSON response.
-func (h *Handler) respondJSON(w http.ResponseWriter, status int, data any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-
-	if err := json.NewEncoder(w).Encode(data); err != nil {
-		log.Printf("[Ingest] Failed to encode response: %v", err)
-	}
-}
-
-// respondError writes an error response.
-func (h *Handler) respondError(w http.ResponseWriter, status int, errCode, errMsg string) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-
-	_ = json.NewEncoder(w).Encode(ErrorResponse{
-		Error:   errCode,
-		Message: errMsg,
-	})
-}
-
-// SuccessResponse is returned on successful event ingestion.
-type SuccessResponse struct {
-	Success bool `json:"success"`
-	Count   int  `json:"count"`
 }

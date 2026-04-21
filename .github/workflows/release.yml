@@ -2,108 +2,56 @@ name: Release
 
 on:
   push:
-    tags:
-      - 'v*.*.*'
+    tags: ['v*.*.*']
 
 permissions:
   contents: write
+  packages: write
 
 jobs:
   test:
     name: Test
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v6
         with:
-          go-version: '1.23'
-          cache: true
-
-      - name: Run tests
-        run: go test -v -race -cover ./...
-
-  build-binaries:
-    name: Build Binaries
-    runs-on: ubuntu-latest
-    needs: test
-    strategy:
-      matrix:
-        include:
-          - goos: linux
-            goarch: amd64
-            suffix: ""
-          - goos: linux
-            goarch: arm64
-            suffix: "-arm64"
-          - goos: linux
-            goarch: arm
-            goarm: 7
-            suffix: "-armv7"
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
+          go-version-file: go.mod
+      - run: go test -v -race -cover ./...
+      - uses: actions/setup-node@v5
         with:
-          go-version: '1.23'
-          cache: true
-
-      - name: Build
-        env:
-          GOOS: ${{ matrix.goos }}
-          GOARCH: ${{ matrix.goarch }}
-          GOARM: ${{ matrix.goarm }}
-          CGO_ENABLED: 1
-        run: |
-          VERSION=${GITHUB_REF_NAME#v}
-          go build \
-            -ldflags "-X main.version=$VERSION -X main.buildTime=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-            -o analytics${{ matrix.suffix }} \
-            ./cmd/analytics
-
-      - name: Upload binary
-        uses: actions/upload-artifact@v4
-        with:
-          name: binary-${{ matrix.goos }}-${{ matrix.goarch }}
-          path: analytics${{ matrix.suffix }}
+          node-version-file: dashboard/package.json
+      - working-directory: dashboard
+        run: npm ci && npm test
 
   build-deb:
     name: Build Debian Package
     runs-on: ubuntu-latest
     needs: test
-
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Install build dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y dpkg-dev debhelper devscripts
-
-      - name: Update changelog for release
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: dashboard/package.json
+      - name: Install packaging tools
+        run: sudo apt-get update && sudo apt-get install -y dpkg-dev debhelper devscripts brotli
+      - name: Set changelog version
         run: |
           VERSION=${GITHUB_REF_NAME#v}
           sed -i "s/(1.0.0-1)/($VERSION-1)/" debian/changelog
-          DATE=$(date -R)
-          sed -i "s/\$(shell date -R)/$DATE/" debian/changelog
-
-      - name: Build package
+      - name: Build dashboard
+        working-directory: dashboard
+        run: npm ci && npm run build
+      - name: Build .deb package
         run: dpkg-buildpackage -us -uc -b
-
-      - name: Rename package
+      - name: Rename package with version
         run: |
           VERSION=${GITHUB_REF_NAME#v}
           mv ../analytics_*.deb ../analytics_${VERSION}_amd64.deb
-
-      - name: Upload .deb artifact
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: debian-package
           path: ../analytics_*_amd64.deb
@@ -111,76 +59,61 @@ jobs:
   release:
     name: Create Release
     runs-on: ubuntu-latest
-    needs: [build-binaries, build-deb]
-
+    needs: [build-deb]
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
+      - uses: actions/checkout@v4
         with:
-          path: artifacts
-
-      - name: Create release
-        env:
-          GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ github.ref_name }}
+          fetch-depth: 0
+      - uses: actions/download-artifact@v4
+        with:
+          name: debian-package
+          path: ./release-assets
+      - name: Generate release notes
+        id: notes
         run: |
-          # Create release notes
-          cat > release-notes.md << 'EOF'
-          ## Analytics ${VERSION}
-
-          ### Installation
-
-          **Debian/Ubuntu:**
-          \`\`\`bash
-          wget https://github.com/dubreuilpro/analytics/releases/download/${VERSION}/analytics_${VERSION}_amd64.deb
-          sudo dpkg -i analytics_${VERSION}_amd64.deb
-          sudo systemctl start analytics
-          \`\`\`
-
-          **Binary (Linux AMD64):**
-          \`\`\`bash
-          wget https://github.com/dubreuilpro/analytics/releases/download/${VERSION}/analytics
-          chmod +x analytics
-          ./analytics
-          \`\`\`
-
-          ### Changelog
-
-          See [CHANGELOG.md](https://github.com/dubreuilpro/analytics/blob/main/CHANGELOG.md) for details.
-          EOF
-
-          # Create or update the release
-          gh release create ${VERSION} \
-            --notes-file release-notes.md \
-            --title "Analytics ${VERSION}" \
-            artifacts/binary-*/* \
-            artifacts/debian-package/* || true
+          VERSION=${GITHUB_REF_NAME}
+          {
+            echo "body<<EOF"
+            echo "## Analytics ${VERSION}"
+            echo ""
+            echo "### Install (Debian/Ubuntu)"
+            echo "\`\`\`bash"
+            echo "wget https://github.com/dubreuilpro/analytics/releases/download/${VERSION}/analytics_${VERSION#v}_amd64.deb"
+            echo "sudo dpkg -i analytics_${VERSION#v}_amd64.deb"
+            echo "sudo systemctl status analytics"
+            echo "\`\`\`"
+            echo ""
+            echo "Static assets are installed to \`/usr/share/analytics/\`."
+            echo "Point Caddy/nginx to serve the dashboard from there and reverse-proxy \`/api/*\` to the service on \`:3001\`."
+            echo ""
+            echo "### What's Changed"
+            echo ""
+            git log --pretty=format:"- %s (%h)" $(git tag --sort=-version:refname | head -2 | tail -1)..HEAD 2>/dev/null || echo "- Initial release"
+            echo ""
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: Analytics ${{ github.ref_name }}
+          body: ${{ steps.notes.outputs.body }}
+          files: ./release-assets/*
 
   build-docker:
     name: Build and Push Docker Image
     runs-on: ubuntu-latest
     needs: test
     if: github.repository == 'dubreuilpro/analytics'
-
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Extract metadata
-        id: meta
+      - id: meta
         uses: docker/metadata-action@v5
         with:
           images: ghcr.io/dubreuilpro/analytics
@@ -189,9 +122,7 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
             type=semver,pattern={{major}}
             type=raw,value=latest
-
-      - name: Build and push
-        uses: docker/build-push-action@v6
+      - uses: docker/build-push-action@v6
         with:
           context: .
           platforms: linux/amd64,linux/arm64

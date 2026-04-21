@@ -2,6 +2,7 @@
 package api
 
 import (
+	"crypto/subtle"
 	"log"
 	"net"
 	"net/http"
@@ -12,25 +13,14 @@ import (
 
 // getClientIP extracts the client IP from the request, safely handling
 // X-Forwarded-For and X-Real-IP headers to prevent spoofing.
-//
-// Header format: X-Forwarded-For: client, proxy1, proxy2
-// The rightmost (last) IP is the most trusted (closest to our server).
-// Taking the leftmost IP allows spoofing: a client can send
-// "X-Forwarded-For: 1.2.3.4" to appear as 1.2.3.4.
-//
-// For RemoteAddr (direct connection), we strip the port number.
 func getClientIP(r *http.Request) string {
-	// Try X-Real-IP first (commonly set by trusted reverse proxies)
 	if realIP := r.Header.Get("X-Real-IP"); realIP != "" {
 		if ip := parseIP(realIP); ip != "" {
 			return ip
 		}
 	}
 
-	// X-Forwarded-For: client, proxy1, proxy2, ...
-	// Take the rightmost (last) IP - the client connected to the first trusted proxy
 	if fwd := r.Header.Get("X-Forwarded-For"); fwd != "" {
-		// Split by comma and take the last non-empty IP
 		ips := strings.Split(fwd, ",")
 		for i := len(ips) - 1; i >= 0; i-- {
 			if ip := parseIP(strings.TrimSpace(ips[i])); ip != "" {
@@ -39,51 +29,51 @@ func getClientIP(r *http.Request) string {
 		}
 	}
 
-	// Fall back to RemoteAddr (direct connection)
 	return parseIP(r.RemoteAddr)
 }
 
 // parseIP extracts a bare IP address from a host:port string,
 // handling both IPv4 and IPv6 (including bracketed [::1]:8080 format).
 func parseIP(host string) string {
-	// Handle IPv6 in brackets: [::1]:8080 -> ::1
 	if strings.HasPrefix(host, "[") {
 		if idx := strings.Index(host, "]"); idx != -1 {
 			return host[1:idx]
 		}
 	}
 
-	// Handle IPv4 and unbracketed IPv6: split on last colon
 	if idx := strings.LastIndex(host, ":"); idx != -1 {
 		host = host[:idx]
 	}
 
-	// Validate it's a valid IP format
 	if net.ParseIP(host) != nil {
 		return host
 	}
 
-	// Return as-is if parsing fails (better than losing the info)
 	return host
+}
+
+// constantTimeEqual compares two strings in constant time.
+func constantTimeEqual(a, b string) bool {
+	return subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1
 }
 
 // APIKey creates middleware that validates API keys for write operations.
 // If no key is configured, the middleware allows all requests.
+// The key is read from the X-API-Key header. The query parameter ?api_key=
+// is also accepted as a fallback for sendBeacon (which cannot set headers).
 func APIKey(apiKey string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		if apiKey == "" {
-			// No authentication configured
 			return next
 		}
 
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Query param takes precedence over header (allows override)
-			key := r.URL.Query().Get("api_key")
+			key := r.Header.Get("X-API-Key")
 			if key == "" {
-				key = r.Header.Get("X-API-Key")
+				key = r.URL.Query().Get("api_key")
 			}
 
-			if key != apiKey {
+			if !constantTimeEqual(key, apiKey) {
 				http.Error(w, `{"error":"unauthorized","message":"Invalid or missing API key"}`, http.StatusUnauthorized)
 				return
 			}
@@ -95,8 +85,6 @@ func APIKey(apiKey string) func(http.Handler) http.Handler {
 
 // RateLimiter creates a simple rate limiter using token bucket algorithm.
 // It limits requests per IP address.
-// Returns the middleware function and a cleanup function that must be called
-// during shutdown to stop the background goroutine.
 func RateLimiter(requests int, window time.Duration) (func(http.Handler) http.Handler, func()) {
 	limiter := &ipRateLimiter{
 		visitors: make(map[string]*visitor),
@@ -106,7 +94,6 @@ func RateLimiter(requests int, window time.Duration) (func(http.Handler) http.Ha
 		stop:     make(chan struct{}),
 	}
 
-	// Cleanup old visitors every minute
 	go limiter.cleanupVisitors(time.Minute)
 
 	middleware := func(next http.Handler) http.Handler {
@@ -123,7 +110,6 @@ func RateLimiter(requests int, window time.Duration) (func(http.Handler) http.Ha
 		})
 	}
 
-	// Return cleanup function that stops the goroutine
 	cleanup := func() {
 		limiter.Stop()
 	}
@@ -131,14 +117,12 @@ func RateLimiter(requests int, window time.Duration) (func(http.Handler) http.Ha
 	return middleware, cleanup
 }
 
-// visitor tracks request count for a single IP.
 type visitor struct {
-	tokens    int
-	lastSeen  time.Time
-	mu        sync.Mutex
+	tokens   int
+	lastSeen time.Time
+	mu       sync.Mutex
 }
 
-// ipRateLimiter tracks visitors and their request rates.
 type ipRateLimiter struct {
 	visitors map[string]*visitor
 	mu       sync.RWMutex
@@ -147,7 +131,6 @@ type ipRateLimiter struct {
 	stop     chan struct{}
 }
 
-// Allow checks if a request from the given IP should be allowed.
 func (rl *ipRateLimiter) Allow(ip string) bool {
 	rl.mu.Lock()
 	v, exists := rl.visitors[ip]
@@ -157,13 +140,11 @@ func (rl *ipRateLimiter) Allow(ip string) bool {
 		rl.mu.Unlock()
 		return true
 	}
-	// Keep the map locked while we lock the visitor to prevent deletion
 	v.mu.Lock()
 	rl.mu.Unlock()
 
 	defer v.mu.Unlock()
 
-	// Refill tokens based on time passed
 	now := time.Now()
 	elapsed := now.Sub(v.lastSeen)
 	if elapsed >= rl.window {
@@ -172,7 +153,6 @@ func (rl *ipRateLimiter) Allow(ip string) bool {
 		return true
 	}
 
-	// Check if we have tokens available
 	if v.tokens > 0 {
 		v.tokens--
 		v.lastSeen = now
@@ -182,7 +162,6 @@ func (rl *ipRateLimiter) Allow(ip string) bool {
 	return false
 }
 
-// cleanupVisitors removes stale visitor entries.
 func (rl *ipRateLimiter) cleanupVisitors(interval time.Duration) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
@@ -206,7 +185,6 @@ func (rl *ipRateLimiter) cleanupVisitors(interval time.Duration) {
 	}
 }
 
-// Stop stops the cleanup goroutine.
 func (rl *ipRateLimiter) Stop() {
 	close(rl.stop)
 }
@@ -248,7 +226,6 @@ func CORS(allowedOrigins []string) func(http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			origin := r.Header.Get("Origin")
 
-			// Set CORS headers for OPTIONS preflight requests
 			if r.Method == "OPTIONS" {
 				if origin != "" {
 					if hasWildcard || originMap[origin] || len(allowedOrigins) == 0 {
@@ -266,7 +243,6 @@ func CORS(allowedOrigins []string) func(http.Handler) http.Handler {
 				return
 			}
 
-			// Set CORS headers for regular requests
 			if origin != "" {
 				if hasWildcard {
 					w.Header().Set("Access-Control-Allow-Origin", "*")

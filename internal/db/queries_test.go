@@ -1,8 +1,9 @@
-// Package db provides tests for database query operations.
 package db
 
 import (
 	"database/sql"
+	"fmt"
+	"os"
 	"testing"
 	"time"
 )
@@ -51,7 +52,6 @@ func TestStoreEventsSingle(t *testing.T) {
 		t.Errorf("Expected count 1, got %d", count)
 	}
 
-	// Verify event was stored
 	var eventCount int
 	err = th.DB.QueryRow("SELECT COUNT(*) FROM events").Scan(&eventCount)
 	if err != nil {
@@ -61,7 +61,6 @@ func TestStoreEventsSingle(t *testing.T) {
 		t.Errorf("Expected 1 event in database, got %d", eventCount)
 	}
 
-	// Verify session was created
 	var sessionCount int
 	err = th.DB.QueryRow("SELECT COUNT(*) FROM sessions").Scan(&sessionCount)
 	if err != nil {
@@ -106,7 +105,6 @@ func TestStoreEventsMultiple(t *testing.T) {
 		t.Errorf("Expected count 3, got %d", count)
 	}
 
-	// Verify sessions
 	var sessionCount int
 	err = th.DB.QueryRow("SELECT COUNT(*) FROM sessions").Scan(&sessionCount)
 	if err != nil {
@@ -140,7 +138,6 @@ func TestStoreEventsCustomEvent(t *testing.T) {
 		t.Errorf("Expected count 1, got %d", count)
 	}
 
-	// Verify event stats
 	var eventCount int
 	err = th.DB.QueryRow("SELECT COUNT(*) FROM event_stats").Scan(&eventCount)
 	if err != nil {
@@ -157,7 +154,6 @@ func TestStoreEventsSessionUpdate(t *testing.T) {
 
 	now := time.Now().UnixMilli()
 
-	// Store first batch of events
 	events1 := []Event{
 		{
 			SessionID:      "sess1",
@@ -173,7 +169,6 @@ func TestStoreEventsSessionUpdate(t *testing.T) {
 		t.Fatalf("Failed to store first events: %v", err)
 	}
 
-	// Store more events for same session
 	events2 := []Event{
 		{
 			SessionID:      "sess1",
@@ -189,7 +184,6 @@ func TestStoreEventsSessionUpdate(t *testing.T) {
 		t.Fatalf("Failed to store second events: %v", err)
 	}
 
-	// Verify session was updated, not duplicated
 	var sessionCount int
 	err = th.DB.QueryRow("SELECT COUNT(*) FROM sessions WHERE session_id = 'sess1'").Scan(&sessionCount)
 	if err != nil {
@@ -199,7 +193,6 @@ func TestStoreEventsSessionUpdate(t *testing.T) {
 		t.Errorf("Expected 1 session, got %d", sessionCount)
 	}
 
-	// Verify pageviews increased
 	var pageviews int
 	err = th.DB.QueryRow("SELECT pageviews FROM sessions WHERE session_id = 'sess1'").Scan(&pageviews)
 	if err != nil {
@@ -220,7 +213,6 @@ func TestStoreEventsEmptyStrings(t *testing.T) {
 			SessionID: "sess1",
 			Type:      "pageview",
 			URL:       "/test",
-			// Referrer, Title, UserAgent are empty (should be NULL)
 			Timestamp: now,
 		},
 	}
@@ -230,7 +222,6 @@ func TestStoreEventsEmptyStrings(t *testing.T) {
 		t.Fatalf("Failed to store events: %v", err)
 	}
 
-	// Verify empty strings were stored as NULL
 	var referrer sql.NullString
 	err = th.DB.QueryRow("SELECT referrer FROM events LIMIT 1").Scan(&referrer)
 	if err != nil {
@@ -245,7 +236,6 @@ func TestGetSummary(t *testing.T) {
 	th := NewTestHelper(t)
 	defer th.Close(t)
 
-	// Store some test data
 	now := time.Now().UnixMilli()
 	today := time.Now().Format("2006-01-02")
 	events := []Event{
@@ -311,19 +301,18 @@ func TestGetTimeSeries(t *testing.T) {
 	today := now.Format("2006-01-02")
 	yesterday := now.AddDate(0, 0, -1).Format("2006-01-02")
 
-	// Store events for today and yesterday
 	events := []Event{
 		{
 			SessionID: "sess1",
 			Type:      "pageview",
 			URL:       "/page1",
-			Timestamp: now.Add(-24 * time.Hour).UnixMilli(), // yesterday
+			Timestamp: now.Add(-24 * time.Hour).UnixMilli(),
 		},
 		{
 			SessionID: "sess2",
 			Type:      "pageview",
 			URL:       "/page2",
-			Timestamp: now.UnixMilli(), // today
+			Timestamp: now.UnixMilli(),
 		},
 	}
 
@@ -384,7 +373,6 @@ func TestGetTopPages(t *testing.T) {
 		t.Error("Expected at least 1 page")
 	}
 
-	// /popular should be first
 	if pages[0].URL != "/popular" {
 		t.Errorf("Expected /popular to be first, got %s", pages[0].URL)
 	}
@@ -438,7 +426,6 @@ func TestGetTopEvents(t *testing.T) {
 		t.Error("Expected at least 1 event")
 	}
 
-	// click should be first with count 2
 	if topEvents[0].EventName != "click" {
 		t.Errorf("Expected click to be first, got %s", topEvents[0].EventName)
 	}
@@ -452,8 +439,8 @@ func TestGetSessions(t *testing.T) {
 	defer th.Close(t)
 
 	now := time.Now().UnixMilli()
-	startTime := now - 3600000 // 1 hour ago
-	endTime := now + 3600000   // 1 hour from now
+	startTime := now - 3600000
+	endTime := now + 3600000
 
 	events := []Event{
 		{
@@ -497,7 +484,6 @@ func TestGetSessionsPagination(t *testing.T) {
 
 	now := time.Now().UnixMilli()
 
-	// Create 5 sessions
 	for i := 1; i <= 5; i++ {
 		events := []Event{
 			{
@@ -513,7 +499,6 @@ func TestGetSessionsPagination(t *testing.T) {
 		}
 	}
 
-	// Get first page
 	sessions1, err := GetSessions(th.DB, now, now+10000, 2, 0)
 	if err != nil {
 		t.Fatalf("Failed to get first page: %v", err)
@@ -522,7 +507,6 @@ func TestGetSessionsPagination(t *testing.T) {
 		t.Errorf("Expected 2 sessions on first page, got %d", len(sessions1))
 	}
 
-	// Get second page
 	sessions2, err := GetSessions(th.DB, now, now+10000, 2, 2)
 	if err != nil {
 		t.Fatalf("Failed to get second page: %v", err)
@@ -531,7 +515,6 @@ func TestGetSessionsPagination(t *testing.T) {
 		t.Errorf("Expected 2 sessions on second page, got %d", len(sessions2))
 	}
 
-	// Verify different sessions
 	if sessions1[0].SessionID == sessions2[0].SessionID {
 		t.Error("Expected different sessions on different pages")
 	}
@@ -542,7 +525,7 @@ func TestDeleteOldEvents(t *testing.T) {
 	defer th.Close(t)
 
 	now := time.Now().UnixMilli()
-	oldTime := now - (91 * 24 * 3600 * 1000) // 91 days ago
+	oldTime := now - (91 * 24 * 3600 * 1000)
 
 	events := []Event{
 		{
@@ -564,7 +547,6 @@ func TestDeleteOldEvents(t *testing.T) {
 		t.Fatalf("Failed to store events: %v", err)
 	}
 
-	// Delete events older than 90 days
 	deleted, err := DeleteOldEvents(th.DB, 90)
 	if err != nil {
 		t.Fatalf("Failed to delete old events: %v", err)
@@ -574,7 +556,6 @@ func TestDeleteOldEvents(t *testing.T) {
 		t.Errorf("Expected 1 deleted event, got %d", deleted)
 	}
 
-	// Verify only old event was deleted
 	var count int
 	err = th.DB.QueryRow("SELECT COUNT(*) FROM events").Scan(&count)
 	if err != nil {
@@ -589,7 +570,6 @@ func TestDeleteOldEventsZeroRetention(t *testing.T) {
 	th := NewTestHelper(t)
 	defer th.Close(t)
 
-	// Zero retention means no deletion
 	deleted, err := DeleteOldEvents(th.DB, 0)
 	if err != nil {
 		t.Fatalf("Failed to delete old events: %v", err)
@@ -604,7 +584,6 @@ func TestVacuum(t *testing.T) {
 	th := NewTestHelper(t)
 	defer th.Close(t)
 
-	// Vacuum should not error
 	if err := Vacuum(th.DB); err != nil {
 		t.Errorf("Vacuum failed: %v", err)
 	}
@@ -639,7 +618,6 @@ func TestStoreEventsMaxScrollDepth(t *testing.T) {
 		t.Fatalf("Failed to store events: %v", err)
 	}
 
-	// Verify max scroll depth
 	var maxScroll int
 	err = th.DB.QueryRow("SELECT max_scroll_depth FROM sessions WHERE session_id = 'sess1'").Scan(&maxScroll)
 	if err != nil {
@@ -677,7 +655,6 @@ func TestStoreEventsTotalEngagement(t *testing.T) {
 		t.Fatalf("Failed to store events: %v", err)
 	}
 
-	// Verify total engagement
 	var totalEngagement int
 	err = th.DB.QueryRow("SELECT total_engagement FROM sessions WHERE session_id = 'sess1'").Scan(&totalEngagement)
 	if err != nil {
@@ -696,7 +673,6 @@ func TestDailyStatsAggregation(t *testing.T) {
 	nowMs := now.UnixMilli()
 	today := now.Format("2006-01-02")
 
-	// Create multiple sessions on the same day
 	for i := 0; i < 3; i++ {
 		events := []Event{
 			{
@@ -713,7 +689,6 @@ func TestDailyStatsAggregation(t *testing.T) {
 		}
 	}
 
-	// Check daily stats
 	var stats DailyStats
 	err := th.DB.QueryRow(`
 		SELECT date, pageviews, sessions, unique_visitors, total_engagement
@@ -735,16 +710,23 @@ func TestDailyStatsAggregation(t *testing.T) {
 	}
 }
 
-// BenchmarkStoreEvents benchmarks event storage performance.
 func BenchmarkStoreEvents(b *testing.B) {
-	th := NewTestHelper(&testing.T{})
-	defer th.Close(&testing.T{})
+	unique := time.Now().Format("20060102150405") + fmt.Sprintf("%d", time.Now().Nanosecond())
+	path := "/tmp/analytics_bench_" + unique + ".db"
+	database, err := Open(path)
+	if err != nil {
+		b.Fatalf("Failed to open benchmark database: %v", err)
+	}
+	defer func() {
+		database.Close()
+		os.Remove(path)
+	}()
 
 	now := time.Now().UnixMilli()
 	events := make([]Event, 100)
 	for i := 0; i < 100; i++ {
 		events[i] = Event{
-			SessionID: "sess_bench",
+			SessionID: fmt.Sprintf("sess_bench_%d", i),
 			Type:      "pageview",
 			URL:       "/page",
 			Timestamp: now + int64(i)*1000,
@@ -753,6 +735,6 @@ func BenchmarkStoreEvents(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, _ = StoreEvents(th.DB, events)
+		_, _ = StoreEvents(database, events)
 	}
 }

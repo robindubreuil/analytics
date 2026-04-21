@@ -37,11 +37,13 @@ build:
 	$(GOBUILD) $(LDFLAGS) -o $(BINARY_NAME) $(BINARY_PATH)
 	@echo "$(COLOR_BOLD)$(COLOR_GREEN)Build complete: $(BINARY_NAME)$(COLOR_RESET)"
 
-## build-deb: Build Debian package
+## build-deb: Build Debian package (builds dashboard first)
 .PHONY: build-deb
 build-deb:
+	@echo "$(COLOR_BOLD)$(COLOR_GREEN)Building dashboard...$(COLOR_RESET)"
+	cd dashboard && npm install && npm run build
 	@echo "$(COLOR_BOLD)$(COLOR_GREEN)Building Debian package...$(COLOR_RESET)"
-	@VERSION=$(PACKAGE_VERSION) dpkg-buildpackage -us -uc -b
+	dpkg-buildpackage -us -uc -b
 	@echo "$(COLOR_BOLD)$(COLOR_GREEN)Package built successfully!$(COLOR_RESET)"
 	@ls -lh ../$(PACKAGE_NAME)_*.deb 2>/dev/null || echo "Package not found in parent directory"
 

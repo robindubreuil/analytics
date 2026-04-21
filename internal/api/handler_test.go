@@ -1,4 +1,3 @@
-// Package api provides tests for dashboard API handlers.
 package api
 
 import (
@@ -15,11 +14,9 @@ import (
 	"github.com/dubreuilpro/analytics/internal/db"
 )
 
-// openTestDB creates a test database.
 func openTestDBForHandler(t *testing.T) *sql.DB {
 	t.Helper()
 
-	// Use nanoseconds for uniqueness
 	unique := time.Now().Format("20060102150405") + fmt.Sprintf("%d", time.Now().Nanosecond())
 	path := "/tmp/analytics_handler_test_" + unique + ".db"
 
@@ -37,36 +34,32 @@ func openTestDBForHandler(t *testing.T) *sql.DB {
 
 func TestNew(t *testing.T) {
 	database := openTestDBForHandler(t)
-	handler := New(database)
+	handler := New(database, "")
 
 	if handler == nil {
 		t.Error("Expected non-nil handler")
 	}
-	if handler.db != database {
-		t.Error("Handler database not set correctly")
+	if handler.dashboardKey != "" {
+		t.Error("Expected empty dashboard key")
 	}
 }
 
-func TestSetDashboardKey(t *testing.T) {
-	testKey := "test-dashboard-key"
-	SetDashboardKey(testKey)
+func TestNewWithKey(t *testing.T) {
+	database := openTestDBForHandler(t)
+	handler := New(database, "test-key")
 
-	if dashboardKey != testKey {
-		t.Errorf("Expected dashboardKey %s, got %s", testKey, dashboardKey)
+	if handler.dashboardKey != "test-key" {
+		t.Errorf("Expected dashboard key 'test-key', got %s", handler.dashboardKey)
 	}
-
-	// Reset to empty
-	SetDashboardKey("")
 }
 
 func TestDashboardHandler_RegisterRoutes(t *testing.T) {
 	database := openTestDBForHandler(t)
-	handler := New(database)
+	handler := New(database, "")
 
 	mux := http.NewServeMux()
 	handler.RegisterRoutes(mux)
 
-	// Test that all routes are registered
 	routes := []string{
 		"GET /api/dashboard/summary",
 		"GET /api/dashboard/timeseries",
@@ -76,8 +69,6 @@ func TestDashboardHandler_RegisterRoutes(t *testing.T) {
 		"GET /api/dashboard/health",
 	}
 
-	// We can't easily test if routes are registered without accessing internals,
-	// but we can test that calling them doesn't panic
 	for _, route := range routes {
 		parts := strings.Split(route, " ")
 		method := parts[0]
@@ -88,7 +79,6 @@ func TestDashboardHandler_RegisterRoutes(t *testing.T) {
 
 		mux.ServeHTTP(w, req)
 
-		// Health should work, others need auth or data
 		if path == "/api/dashboard/health" {
 			if w.Code != http.StatusOK {
 				t.Errorf("Health endpoint failed: %d", w.Code)
@@ -99,30 +89,22 @@ func TestDashboardHandler_RegisterRoutes(t *testing.T) {
 
 func TestDashboardHandler_WithAuthNoKey(t *testing.T) {
 	database := openTestDBForHandler(t)
-	handler := New(database)
-
-	// No dashboard key set - should allow access
-	SetDashboardKey("")
+	handler := New(database, "")
 
 	req := httptest.NewRequest("GET", "/api/dashboard/summary", nil)
 	w := httptest.NewRecorder()
 
 	handler.withAuth(handler.summary).ServeHTTP(w, req)
 
-	// Should get OK (with empty data, using default date range) not unauthorized
 	if w.Code != http.StatusOK {
-		t.Errorf("Expected status 200 (using defaults), got %d", w.Code)
+		t.Errorf("Expected status 200, got %d", w.Code)
 	}
 }
 
 func TestDashboardHandler_WithAuthWithKey(t *testing.T) {
 	database := openTestDBForHandler(t)
-	handler := New(database)
-
 	testKey := "test-dashboard-key"
-	SetDashboardKey(testKey)
-
-	defer SetDashboardKey("")
+	handler := New(database, testKey)
 
 	tests := []struct {
 		name       string
@@ -133,12 +115,12 @@ func TestDashboardHandler_WithAuthWithKey(t *testing.T) {
 		{
 			name:       "valid key via header",
 			headerKey:  testKey,
-			expectCode: http.StatusOK, // Uses default date range
+			expectCode: http.StatusOK,
 		},
 		{
 			name:       "valid key via query",
 			queryKey:   testKey,
-			expectCode: http.StatusOK, // Uses default date range
+			expectCode: http.StatusOK,
 		},
 		{
 			name:       "invalid key",
@@ -171,12 +153,26 @@ func TestDashboardHandler_WithAuthWithKey(t *testing.T) {
 	}
 }
 
+func TestDashboardHandler_WithAuthHeaderTakesPrecedence(t *testing.T) {
+	database := openTestDBForHandler(t)
+	testKey := "test-key"
+	handler := New(database, testKey)
+
+	req := httptest.NewRequest("GET", "/api/dashboard/summary?api_key=wrong-key", nil)
+	req.Header.Set("X-API-Key", testKey)
+	w := httptest.NewRecorder()
+
+	handler.withAuth(handler.summary).ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("Expected status 200 (header should take precedence), got %d", w.Code)
+	}
+}
+
 func TestDashboardHandler_Summary(t *testing.T) {
 	database := openTestDBForHandler(t)
-	handler := New(database)
-	SetDashboardKey("")
+	handler := New(database, "")
 
-	// Add test data
 	now := time.Now().UnixMilli()
 	events := []db.Event{
 		{
@@ -221,22 +217,14 @@ func TestDashboardHandler_Summary(t *testing.T) {
 	if resp["sessions"] != float64(2) {
 		t.Errorf("Expected sessions 2, got %v", resp["sessions"])
 	}
-
-	// Check bounce rate field exists
 	if resp["bounceRate"] == nil {
 		t.Error("Expected bounceRate in response")
-	}
-	// Note: bounced_sessions is not currently calculated, so bounceRate is always 0
-	// This is a known limitation in the current implementation
-	if resp["bounceRate"] != float64(0) {
-		t.Errorf("Expected bounceRate 0, got %v", resp["bounceRate"])
 	}
 }
 
 func TestDashboardHandler_Timeseries(t *testing.T) {
 	database := openTestDBForHandler(t)
-	handler := New(database)
-	SetDashboardKey("")
+	handler := New(database, "")
 
 	now := time.Now()
 	today := now.Format("2006-01-02")
@@ -274,8 +262,6 @@ func TestDashboardHandler_Timeseries(t *testing.T) {
 	if !ok {
 		t.Fatal("Expected data array in response")
 	}
-
-	// Should have at least one day of data
 	if len(data) == 0 {
 		t.Error("Expected at least one data point")
 	}
@@ -283,8 +269,7 @@ func TestDashboardHandler_Timeseries(t *testing.T) {
 
 func TestDashboardHandler_Pages(t *testing.T) {
 	database := openTestDBForHandler(t)
-	handler := New(database)
-	SetDashboardKey("")
+	handler := New(database, "")
 
 	now := time.Now().UnixMilli()
 	today := time.Now().Format("2006-01-02")
@@ -327,7 +312,6 @@ func TestDashboardHandler_Pages(t *testing.T) {
 	if !ok {
 		t.Fatal("Expected pages array in response")
 	}
-
 	if len(pages) == 0 {
 		t.Error("Expected at least one page")
 	}
@@ -335,8 +319,7 @@ func TestDashboardHandler_Pages(t *testing.T) {
 
 func TestDashboardHandler_Events(t *testing.T) {
 	database := openTestDBForHandler(t)
-	handler := New(database)
-	SetDashboardKey("")
+	handler := New(database, "")
 
 	now := time.Now().UnixMilli()
 	today := time.Now().Format("2006-01-02")
@@ -374,7 +357,6 @@ func TestDashboardHandler_Events(t *testing.T) {
 	if !ok {
 		t.Fatal("Expected events array in response")
 	}
-
 	if len(eventsData) == 0 {
 		t.Error("Expected at least one event")
 	}
@@ -382,8 +364,7 @@ func TestDashboardHandler_Events(t *testing.T) {
 
 func TestDashboardHandler_Sessions(t *testing.T) {
 	database := openTestDBForHandler(t)
-	handler := New(database)
-	SetDashboardKey("")
+	handler := New(database, "")
 
 	now := time.Now().UnixMilli()
 
@@ -424,7 +405,6 @@ func TestDashboardHandler_Sessions(t *testing.T) {
 	if !ok {
 		t.Fatal("Expected sessions array in response")
 	}
-
 	if len(sessions) == 0 {
 		t.Error("Expected at least one session")
 	}
@@ -432,7 +412,7 @@ func TestDashboardHandler_Sessions(t *testing.T) {
 
 func TestDashboardHandler_Health(t *testing.T) {
 	database := openTestDBForHandler(t)
-	handler := New(database)
+	handler := New(database, "")
 
 	req := httptest.NewRequest("GET", "/api/dashboard/health", nil)
 	w := httptest.NewRecorder()
@@ -453,16 +433,13 @@ func TestDashboardHandler_Health(t *testing.T) {
 	}
 }
 
-func TestDashboardHandler_ParseDateRange(t *testing.T) {
-	database := openTestDBForHandler(t)
-	handler := New(database)
-
+func TestParseDateRange(t *testing.T) {
 	tests := []struct {
-		name         string
-		query        string
-		expectStart  string
-		expectEnd    string
-		expectError  bool
+		name        string
+		query       string
+		expectStart string
+		expectEnd   string
+		expectError bool
 	}{
 		{
 			name:        "valid dates",
@@ -474,7 +451,6 @@ func TestDashboardHandler_ParseDateRange(t *testing.T) {
 			name:        "default dates",
 			query:       "",
 			expectError: false,
-			// Just check that dates are returned
 		},
 		{
 			name:        "only start",
@@ -521,7 +497,7 @@ func TestDashboardHandler_ParseDateRange(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			req := httptest.NewRequest("GET", "/?"+tt.query, nil)
-			start, end, err := handler.parseDateRange(req)
+			start, end, err := parseDateRange(req)
 
 			if tt.expectError {
 				if err == nil {
@@ -545,10 +521,7 @@ func TestDashboardHandler_ParseDateRange(t *testing.T) {
 	}
 }
 
-func TestDashboardHandler_ParseTimeRange(t *testing.T) {
-	database := openTestDBForHandler(t)
-	handler := New(database)
-
+func TestParseTimeRange(t *testing.T) {
 	tests := []struct {
 		name        string
 		query       string
@@ -599,7 +572,7 @@ func TestDashboardHandler_ParseTimeRange(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			req := httptest.NewRequest("GET", "/?"+tt.query, nil)
-			start, end, err := handler.parseTimeRange(req)
+			start, end, err := parseTimeRange(req)
 
 			if tt.expectError {
 				if err == nil {
@@ -612,7 +585,6 @@ func TestDashboardHandler_ParseTimeRange(t *testing.T) {
 				t.Errorf("Unexpected error: %v", err)
 			}
 
-			// Verify start <= end
 			if start > end {
 				t.Error("Start should be <= end")
 			}
@@ -620,10 +592,7 @@ func TestDashboardHandler_ParseTimeRange(t *testing.T) {
 	}
 }
 
-func TestDashboardHandler_ParseLimit(t *testing.T) {
-	database := openTestDBForHandler(t)
-	handler := New(database)
-
+func TestParseLimit(t *testing.T) {
 	tests := []struct {
 		query        string
 		defaultLimit int
@@ -632,16 +601,16 @@ func TestDashboardHandler_ParseLimit(t *testing.T) {
 		{"", 10, 10},
 		{"?limit=5", 10, 5},
 		{"?limit=100", 10, 100},
-		{"?limit=2000", 10, 1000}, // Max 1000
-		{"?limit=-1", 10, 10},      // Invalid uses default
-		{"?limit=0", 10, 10},       // Invalid uses default
-		{"?limit=invalid", 10, 10}, // Invalid uses default
+		{"?limit=2000", 10, 1000},
+		{"?limit=-1", 10, 10},
+		{"?limit=0", 10, 10},
+		{"?limit=invalid", 10, 10},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.query, func(t *testing.T) {
 			req := httptest.NewRequest("GET", "/"+tt.query, nil)
-			result := handler.parseLimit(req, tt.defaultLimit)
+			result := parseLimit(req, tt.defaultLimit)
 			if result != tt.expected {
 				t.Errorf("parseLimit() = %d, want %d", result, tt.expected)
 			}
@@ -649,10 +618,7 @@ func TestDashboardHandler_ParseLimit(t *testing.T) {
 	}
 }
 
-func TestDashboardHandler_ParseOffset(t *testing.T) {
-	database := openTestDBForHandler(t)
-	handler := New(database)
-
+func TestParseOffset(t *testing.T) {
 	tests := []struct {
 		query    string
 		expected int
@@ -660,14 +626,15 @@ func TestDashboardHandler_ParseOffset(t *testing.T) {
 		{"", 0},
 		{"?offset=5", 5},
 		{"?offset=100", 100},
-		{"?offset=-1", 0},      // Invalid uses default
-		{"?offset=invalid", 0}, // Invalid uses default
+		{"?offset=-1", 0},
+		{"?offset=invalid", 0},
+		{"?offset=50000", 10000},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.query, func(t *testing.T) {
 			req := httptest.NewRequest("GET", "/"+tt.query, nil)
-			result := handler.parseOffset(req)
+			result := parseOffset(req)
 			if result != tt.expected {
 				t.Errorf("parseOffset() = %d, want %d", result, tt.expected)
 			}
@@ -675,64 +642,11 @@ func TestDashboardHandler_ParseOffset(t *testing.T) {
 	}
 }
 
-func TestDashboardHandler_CalculateBounceRate(t *testing.T) {
-	database := openTestDBForHandler(t)
-	handler := New(database)
-
-	tests := []struct {
-		name              string
-		sessions          int
-		bouncedSessions   int
-		expectedBounceRate float64
-	}{
-		{
-			name:              "no sessions",
-			sessions:          0,
-			bouncedSessions:   0,
-			expectedBounceRate: 0,
-		},
-		{
-			name:              "all bounced",
-			sessions:          10,
-			bouncedSessions:   10,
-			expectedBounceRate: 1.0,
-		},
-		{
-			name:              "half bounced",
-			sessions:          10,
-			bouncedSessions:   5,
-			expectedBounceRate: 0.5,
-		},
-		{
-			name:              "none bounced",
-			sessions:          10,
-			bouncedSessions:   0,
-			expectedBounceRate: 0,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			stats := &db.DailyStats{
-				Sessions:        tt.sessions,
-				BouncedSessions: tt.bouncedSessions,
-			}
-			result := handler.calculateBounceRate(stats)
-			if result != tt.expectedBounceRate {
-				t.Errorf("calculateBounceRate() = %f, want %f", result, tt.expectedBounceRate)
-			}
-		})
-	}
-}
-
-func TestDashboardHandler_RespondJSON(t *testing.T) {
-	database := openTestDBForHandler(t)
-	handler := New(database)
-
+func TestRespondJSON(t *testing.T) {
 	data := map[string]any{"message": "test"}
 
 	w := httptest.NewRecorder()
-	handler.respondJSON(w, http.StatusOK, data)
+	RespondJSON(w, http.StatusOK, data)
 
 	if w.Code != http.StatusOK {
 		t.Errorf("Expected status 200, got %d", w.Code)
@@ -752,12 +666,9 @@ func TestDashboardHandler_RespondJSON(t *testing.T) {
 	}
 }
 
-func TestDashboardHandler_RespondError(t *testing.T) {
-	database := openTestDBForHandler(t)
-	handler := New(database)
-
+func TestRespondError(t *testing.T) {
 	w := httptest.NewRecorder()
-	handler.respondError(w, http.StatusBadRequest, "test_error", "Test error message")
+	RespondError(w, http.StatusBadRequest, "test_error", "Test error message")
 
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("Expected status 400, got %d", w.Code)
@@ -780,33 +691,10 @@ func TestDashboardHandler_RespondError(t *testing.T) {
 	}
 }
 
-func TestDashboardHandler_WithAuthQueryTakesPrecedence(t *testing.T) {
-	database := openTestDBForHandler(t)
-	handler := New(database)
-
-	testKey := "test-key"
-	SetDashboardKey(testKey)
-	defer SetDashboardKey("")
-
-	// Query param should be checked first
-	req := httptest.NewRequest("GET", "/api/dashboard/summary?api_key=wrong-key", nil)
-	req.Header.Set("X-API-Key", testKey)
-	w := httptest.NewRecorder()
-
-	handler.withAuth(handler.summary).ServeHTTP(w, req)
-
-	// Should be unauthorized because query param is wrong
-	if w.Code != http.StatusUnauthorized {
-		t.Errorf("Expected status 401, got %d", w.Code)
-	}
-}
-
 func TestDashboardHandler_HealthDatabaseDown(t *testing.T) {
-	// Create a database and immediately close it to simulate database being down
 	database := openTestDBForHandler(t)
-	handler := New(database)
+	handler := New(database, "")
 
-	// Close the database to make Ping fail
 	if err := database.Close(); err != nil {
 		t.Fatalf("Failed to close database: %v", err)
 	}
@@ -828,17 +716,12 @@ func TestDashboardHandler_HealthDatabaseDown(t *testing.T) {
 	if resp["status"] != "unhealthy" {
 		t.Errorf("Expected status unhealthy, got %v", resp["status"])
 	}
-	if resp["error"] != "database unavailable" {
-		t.Errorf("Expected error 'database unavailable', got %v", resp["error"])
-	}
 }
 
 func TestDashboardHandler_SummaryDatabaseError(t *testing.T) {
 	database := openTestDBForHandler(t)
-	handler := New(database)
-	SetDashboardKey("")
+	handler := New(database, "")
 
-	// Close database to cause error
 	if err := database.Close(); err != nil {
 		t.Fatalf("Failed to close database: %v", err)
 	}

@@ -2,7 +2,7 @@ Source: analytics
 Section: web
 Priority: optional
 Maintainer: Robin Dubreuil <robin@dubreuil.pro>
-Build-Depends: debhelper-compat (= 13), golang-any (>= 2:1.23~)
+Build-Depends: debhelper-compat (= 13), golang-any (>= 2:1.23~), brotli
 Standards-Version: 4.7.0
 Homepage: https://github.com/dubreuilpro/analytics
 Vcs-Browser: https://github.com/dubreuilpro/analytics

@@ -37,7 +37,7 @@ func TestNew(t *testing.T) {
 	handler := New(database, "")
 
 	if handler == nil {
-		t.Error("Expected non-nil handler")
+		t.Fatal("Expected non-nil handler")
 	}
 	if handler.dashboardKey != "" {
 		t.Error("Expected empty dashboard key")

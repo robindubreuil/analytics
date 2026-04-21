@@ -155,7 +155,7 @@ func applyMigration(db *sql.DB, version int64, name string, content []byte) erro
 	if err != nil {
 		return fmt.Errorf("begin transaction: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	// Execute migration SQL
 	if _, err := tx.Exec(string(content)); err != nil {

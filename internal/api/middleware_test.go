@@ -12,7 +12,7 @@ import (
 func TestAPIKeyWithNoKey(t *testing.T) {
 	handler := APIKey("")(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("success"))
+		_, _ = w.Write([]byte("success"))
 	}))
 
 	req := httptest.NewRequest("GET", "/", nil)
@@ -31,7 +31,7 @@ func TestAPIKeyWithNoKey(t *testing.T) {
 func TestAPIKeyWithValidKey(t *testing.T) {
 	handler := APIKey("secret-key")(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("success"))
+		_, _ = w.Write([]byte("success"))
 	}))
 
 	tests := []struct {
@@ -359,7 +359,7 @@ func TestRecoveryMiddleware(t *testing.T) {
 func TestRecoveryMiddlewareNoPanic(t *testing.T) {
 	handler := Recovery(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("success"))
+		_, _ = w.Write([]byte("success"))
 	}))
 
 	req := httptest.NewRequest("GET", "/", nil)
@@ -505,7 +505,7 @@ func TestMiddlewareChaining(t *testing.T) {
 	// Test that multiple middlewares can be chained
 	baseHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("success"))
+		_, _ = w.Write([]byte("success"))
 	})
 
 	handler := Recovery(

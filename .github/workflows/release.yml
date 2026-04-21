@@ -48,10 +48,10 @@ jobs:
         run: npm ci && npm run build
       - name: Build .deb package
         run: dpkg-buildpackage -us -uc -b -d
-      - name: Rename package with version
+      - name: Collect package
         run: |
           VERSION=${GITHUB_REF_NAME#v}
-          mv ../analytics_*.deb ../analytics_${VERSION}_amd64.deb
+          cp ../analytics_*.deb ./analytics_${VERSION}_amd64.deb
       - uses: actions/upload-artifact@v4
         with:
           name: debian-package

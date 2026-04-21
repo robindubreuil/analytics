@@ -62,9 +62,11 @@ jobs:
         run: npm ci && npm run build
       - name: Build .deb package
         run: dpkg-buildpackage -us -uc -b -d
+      - name: Collect package
+        run: cp ../analytics_*.deb ./analytics.deb
       - name: Inspect package
-        run: dpkg-deb -c ../analytics_*.deb
+        run: dpkg-deb -c ./analytics.deb
       - uses: actions/upload-artifact@v4
         with:
           name: analytics-deb
-          path: ../analytics_*.deb
+          path: analytics.deb

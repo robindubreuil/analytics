@@ -60,13 +60,6 @@ jobs:
       - name: Build dashboard
         working-directory: dashboard
         run: npm ci && npm run build
-      - name: Debug Go environment
-        run: |
-          which go
-          go version
-          go env GOROOT GOPATH GOTOOLCHAIN
-          pwd
-          ls -la cmd/analytics/
       - name: Build .deb package
         run: dpkg-buildpackage -us -uc -b -d
       - name: Inspect package

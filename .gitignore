@@ -1,11 +1,11 @@
 # Binaries
 analytics-bin
+/analytics
 *.exe
 *.exe~
 *.dll
 *.so
 *.dylib
-analytics
 
 # Build artifacts
 _build/

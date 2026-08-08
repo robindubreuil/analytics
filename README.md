@@ -60,6 +60,28 @@ make test            # Run tests with race detection
 make lint            # Run golangci-lint
 ```
 
+### .deb Installation Paths
+| Path | Content |
+|------|---------|
+| `/usr/bin/analytics` | Server binary |
+| `/usr/share/analytics/dashboard/` | Dashboard SPA + `analytics.js` tracker (single web root) |
+| `/etc/default/analytics` | Environment config (API keys, port, DB path) |
+| `/var/lib/analytics/` | SQLite database |
+| `/var/log/analytics/` | Logs |
+
+Point your reverse proxy at `/usr/share/analytics/dashboard/` for both the dashboard and the tracker. Example Caddy config:
+
+    analytics.example.com {
+        handle /api/* {
+            reverse_proxy 127.0.0.1:3001
+        }
+        handle {
+            root * /usr/share/analytics/dashboard
+            file_server { precompressed br gzip }
+            try_files {path} /index.html
+        }
+    }
+
 ## Architecture
 
 ### Backend Structure

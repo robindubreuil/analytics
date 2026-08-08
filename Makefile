@@ -55,13 +55,13 @@ build-deb-clean: clean-deb build-deb
 .PHONY: install
 install: build
 	@echo "$(COLOR_BOLD)$(COLOR_GREEN)Installing $(BINARY_NAME)...$(COLOR_RESET)"
-	install -D -m 0755 $(BINARY_NAME) /usr/local/bin/$(BINARY_NAME)
+	install -D -m 0755 $(BINARY_NAME) /usr/bin/$(BINARY_NAME)
 
 ## uninstall: Uninstall the binary
 .PHONY: uninstall
 uninstall:
 	@echo "$(COLOR_BOLD)$(COLOR_YELLOW)Uninstalling $(BINARY_NAME)...$(COLOR_RESET)"
-	rm -f /usr/local/bin/$(BINARY_NAME)
+	rm -f /usr/bin/$(BINARY_NAME)
 
 ## test: Run tests
 .PHONY: test

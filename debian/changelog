@@ -1,3 +1,12 @@
+analytics (1.0.1-1) unstable; urgency=medium
+
+  * Install analytics.js into dashboard dir (single web root)
+  * Precompress all web assets (gzip + brotli) in package
+  * Additional systemd hardening (ProtectClock, ProtectHostname,
+    ProtectKernelLogs, CapabilityBoundingSet, UMask)
+
+ -- Robin Dubreuil <robin@dubreuil.pro>  Sat, 08 Aug 2026 14:00:00 +0200
+
 analytics (1.0.0-1) unstable; urgency=medium
 
   * Initial release

@@ -50,6 +50,11 @@ ProtectControlGroups=true
 ProtectKernelModules=true
 ProtectKernelTunables=true
 RestrictSUIDSGID=true
+ProtectClock=true
+ProtectHostname=true
+ProtectKernelLogs=true
+CapabilityBoundingSet=
+UMask=0077
 
 [Install]
 WantedBy=multi-user.target

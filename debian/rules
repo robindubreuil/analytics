@@ -41,9 +41,9 @@ override_dh_auto_install:
 	install -d -m 0755 debian/analytics/usr/share/analytics/dashboard
 	cp -r dashboard/dist/* debian/analytics/usr/share/analytics/dashboard/
 
-	install -D -m 0644 analytics.js debian/analytics/usr/share/analytics/analytics.js
-	gzip -k -9 -n debian/analytics/usr/share/analytics/analytics.js
-	brotli -k -q 11 debian/analytics/usr/share/analytics/analytics.js
+	install -D -m 0644 analytics.js debian/analytics/usr/share/analytics/dashboard/analytics.js
+
+	find debian/analytics/usr/share/analytics/dashboard -type f \( -name '*.js' -o -name '*.css' -o -name '*.html' -o -name '*.svg' \) -exec gzip -k -9 -n {} \; -exec brotli -k -q 11 {} \;
 
 override_dh_auto_clean:
 	rm -f analytics

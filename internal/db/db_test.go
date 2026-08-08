@@ -264,9 +264,9 @@ func TestIsBusyError(t *testing.T) {
 			want: true,
 		},
 		{
-			name: "error code 5",
+			name: "error code 5 alone (not matched)",
 			err:  &testError{"(5)"},
-			want: true,
+			want: false,
 		},
 		{
 			name: "other error",

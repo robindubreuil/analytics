@@ -47,6 +47,7 @@ func main() {
 	dashboardHandler := api.New(database, cfg.DashboardAPIKey)
 
 	rateLimiter, rateLimiterCleanup := api.RateLimiter(60, time.Minute)
+	dashboardLimiter, dashboardLimiterCleanup := api.RateLimiter(120, time.Minute)
 
 	mux := http.NewServeMux()
 
@@ -56,7 +57,11 @@ func main() {
 		),
 	))
 
-	dashboardHandler.RegisterRoutes(mux)
+	dashboardMux := http.NewServeMux()
+	dashboardHandler.RegisterRoutes(dashboardMux)
+	mux.Handle("/api/dashboard/", dashboardLimiter(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		dashboardMux.ServeHTTP(w, r)
+	})))
 
 	var handler http.Handler = mux
 	handler = api.Recovery(handler)
@@ -83,7 +88,7 @@ func main() {
 		go retentionJob(ctx, database, cfg.RetentionDays)
 	}
 
-	go shutdownOnSignal(server, cancel, rateLimiterCleanup)
+	go shutdownOnSignal(server, cancel, rateLimiterCleanup, dashboardLimiterCleanup)
 
 	log.Printf("[Server] Starting on %s", cfg.Addr)
 	log.Printf("[Server] Ingest endpoint: POST /api/analytics")
@@ -131,24 +136,30 @@ func retentionJob(ctx context.Context, database *sql.DB, retentionDays int) {
 
 	log.Printf("[Retention] Configured to retain events for %d days", retentionDays)
 
+	runRetention := func() {
+		deleted, err := db.DeleteOldEvents(database, retentionDays)
+		if err != nil {
+			log.Printf("[Retention] Error deleting old events: %v", err)
+			return
+		}
+		if deleted > 1000 {
+			log.Printf("[Retention] Deleted %d old events, running VACUUM", deleted)
+			if err := db.Vacuum(database); err != nil {
+				log.Printf("[Retention] VACUUM error: %v", err)
+			}
+		} else if deleted > 0 {
+			log.Printf("[Retention] Deleted %d old events", deleted)
+		}
+	}
+
+	runRetention()
+
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			deleted, err := db.DeleteOldEvents(database, retentionDays)
-			if err != nil {
-				log.Printf("[Retention] Error deleting old events: %v", err)
-				continue
-			}
-			if deleted > 1000 {
-				log.Printf("[Retention] Deleted %d old events, running VACUUM", deleted)
-				if err := db.Vacuum(database); err != nil {
-					log.Printf("[Retention] VACUUM error: %v", err)
-				}
-			} else if deleted > 0 {
-				log.Printf("[Retention] Deleted %d old events", deleted)
-			}
+			runRetention()
 		}
 	}
 }

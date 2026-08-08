@@ -64,9 +64,6 @@ func (h *DashboardHandler) withAuth(next http.HandlerFunc) http.HandlerFunc {
 		}
 
 		apiKey := r.Header.Get("X-API-Key")
-		if apiKey == "" {
-			apiKey = r.URL.Query().Get("api_key")
-		}
 
 		if !constantTimeEqual(apiKey, h.dashboardKey) {
 			RespondError(w, http.StatusUnauthorized, "unauthorized", "Invalid API key")

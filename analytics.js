@@ -155,6 +155,9 @@
 
   Analytics.prototype.pageview = function (data) {
     if (!this._isEnabled || this._isDisposed) return;
+    this._engagementTime = 0;
+    this._maxScrollDepth = 0;
+    this._scrollDepthsTracked = {};
     data = data || {};
     this._enqueue({
       sessionId: this._sessionId,
@@ -341,8 +344,8 @@
 
   Analytics.prototype.dispose = function () {
     if (this._isDisposed) return;
-    this._isDisposed = true;
     this._flush(true);
+    this._isDisposed = true;
     this._stopTimers();
     this._removeAllListeners();
     this._queue = [];

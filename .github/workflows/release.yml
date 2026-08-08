@@ -42,7 +42,7 @@ jobs:
       - name: Set changelog version
         run: |
           VERSION=${GITHUB_REF_NAME#v}
-          sed -i "s/(1.0.0-1)/($VERSION-1)/" debian/changelog
+          sed -i "1s/(.*)/(${VERSION}-1)/" debian/changelog
       - name: Build dashboard
         working-directory: dashboard
         run: npm ci && npm run build
@@ -84,7 +84,7 @@ jobs:
             echo "sudo systemctl status analytics"
             echo "\`\`\`"
             echo ""
-            echo "Static assets are installed to \`/usr/share/analytics/\`."
+            echo "Static assets are installed to \`/usr/share/analytics/dashboard/\`."
             echo "Point Caddy/nginx to serve the dashboard from there and reverse-proxy \`/api/*\` to the service on \`:3001\`."
             echo ""
             echo "### What's Changed"

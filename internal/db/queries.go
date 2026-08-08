@@ -4,8 +4,8 @@ package db
 import (
 	"database/sql"
 	"fmt"
+	"math/rand"
 	"regexp"
-	"strings"
 	"time"
 )
 
@@ -82,7 +82,8 @@ func StoreEvents(database *sql.DB, events []Event) (int, error) {
 	for attempt := 0; attempt < maxRetries; attempt++ {
 		if attempt > 0 {
 			backoff := 10 * (1 << (attempt - 1))
-			time.Sleep(time.Duration(backoff) * time.Millisecond)
+			jitter := rand.Intn(backoff/2 + 1)
+			time.Sleep(time.Duration(backoff+jitter) * time.Millisecond)
 		}
 
 		tx, err := database.Begin()
@@ -101,7 +102,7 @@ func StoreEvents(database *sql.DB, events []Event) (int, error) {
 				lastErr = err
 				continue
 			}
-			return count, fmt.Errorf("store events: %w", err)
+			return 0, fmt.Errorf("store events: %w", err)
 		}
 
 		if err := tx.Commit(); err != nil {
@@ -110,7 +111,7 @@ func StoreEvents(database *sql.DB, events []Event) (int, error) {
 				lastErr = err
 				continue
 			}
-			return count, fmt.Errorf("commit transaction: %w", err)
+			return 0, fmt.Errorf("commit transaction: %w", err)
 		}
 
 		return count, nil
@@ -167,13 +168,13 @@ func storeEventsInTx(tx *sql.Tx, events []Event) (int, error) {
 	}
 	defer dailyStmt.Close()
 
-	sessionCheckStmt, err := tx.Prepare(`
-		SELECT 1 FROM sessions WHERE session_id = ?
+	sessionReadStmt, err := tx.Prepare(`
+		SELECT pageviews, total_engagement, first_seen FROM sessions WHERE session_id = ?
 	`)
 	if err != nil {
-		return 0, fmt.Errorf("prepare session check: %w", err)
+		return 0, fmt.Errorf("prepare session read: %w", err)
 	}
-	defer sessionCheckStmt.Close()
+	defer sessionReadStmt.Close()
 
 	dailyNewSessionStmt, err := tx.Prepare(`
 		INSERT INTO daily_stats (
@@ -197,13 +198,28 @@ func storeEventsInTx(tx *sql.Tx, events []Event) (int, error) {
 		ON CONFLICT(url, date) DO UPDATE SET
 			pageviews = pageviews + 1,
 			sessions = sessions + 1,
-			avg_engagement = (avg_engagement * (pageviews - 1) + excluded.avg_engagement) / pageviews,
+			avg_engagement = (avg_engagement * pageviews + excluded.avg_engagement) / (pageviews + 1),
 			max_scroll_depth = MAX(max_scroll_depth, excluded.max_scroll_depth)
 	`)
 	if err != nil {
 		return 0, fmt.Errorf("prepare page upsert: %w", err)
 	}
 	defer pageStmt.Close()
+
+	pageViewOnlyStmt, err := tx.Prepare(`
+		INSERT INTO page_stats (
+			url, date, pageviews, sessions, avg_engagement,
+			max_scroll_depth, exits
+		) VALUES (?, ?, 1, 0, ?, ?, 0)
+		ON CONFLICT(url, date) DO UPDATE SET
+			pageviews = pageviews + 1,
+			avg_engagement = (avg_engagement * pageviews + excluded.avg_engagement) / (pageviews + 1),
+			max_scroll_depth = MAX(max_scroll_depth, excluded.max_scroll_depth)
+	`)
+	if err != nil {
+		return 0, fmt.Errorf("prepare page view-only upsert: %w", err)
+	}
+	defer pageViewOnlyStmt.Close()
 
 	eventStmt2, err := tx.Prepare(`
 		INSERT INTO event_stats (event_name, date, count)
@@ -281,11 +297,14 @@ func storeEventsInTx(tx *sql.Tx, events []Event) (int, error) {
 
 		date := toUTCDate(firstEvent.Timestamp)
 
-		var existingSession int
+		var prevPageviews, prevEngagement int
+		var prevFirstSeen int64
 		isNewSession := true
-		err := sessionCheckStmt.QueryRow(sessionID).Scan(&existingSession)
+		err := sessionReadStmt.QueryRow(sessionID).Scan(&prevPageviews, &prevEngagement, &prevFirstSeen)
 		if err == nil {
 			isNewSession = false
+		} else if err != sql.ErrNoRows {
+			return count, fmt.Errorf("read session: %w", err)
 		}
 
 		_, err = sessionStmt.Exec(
@@ -316,20 +335,30 @@ func storeEventsInTx(tx *sql.Tx, events []Event) (int, error) {
 				}
 			}
 		} else {
-			prevPageviews := 0
-			var prevEngagement int
-			err := tx.QueryRow(`SELECT pageviews, total_engagement FROM sessions WHERE session_id = ?`, sessionID).Scan(&prevPageviews, &prevEngagement)
-			if err == nil && prevPageviews <= 1 && prevEngagement < 10 {
-				_, _ = bounceStmt.Exec(date)
+			if prevPageviews <= 1 && prevEngagement < 10 {
+				originalDate := toUTCDate(prevFirstSeen)
+				_, err = bounceStmt.Exec(originalDate)
+				if err != nil {
+					return count, fmt.Errorf("bounce decrement: %w", err)
+				}
 			}
 		}
 
+		seenPages := make(map[string]bool)
 		for _, e := range sessEvents {
 			if e.Type == "pageview" {
-				_, err := pageStmt.Exec(
-					e.URL, toUTCDate(e.Timestamp),
-					e.EngagementTime, e.ScrollDepth,
-				)
+				if seenPages[e.URL] {
+					_, err = pageViewOnlyStmt.Exec(
+						e.URL, toUTCDate(e.Timestamp),
+						e.EngagementTime, e.ScrollDepth,
+					)
+				} else {
+					seenPages[e.URL] = true
+					_, err = pageStmt.Exec(
+						e.URL, toUTCDate(e.Timestamp),
+						e.EngagementTime, e.ScrollDepth,
+					)
+				}
 				if err != nil {
 					return count, fmt.Errorf("upsert page: %w", err)
 				}
@@ -531,9 +560,7 @@ func isBusyError(err error) bool {
 	if err == nil {
 		return false
 	}
-	errMsg := err.Error()
-	return sqliteBusyRe.MatchString(errMsg) ||
-		strings.Contains(errMsg, "(5)")
+	return sqliteBusyRe.MatchString(err.Error())
 }
 
 func sortEventsByTimestamp(events []Event) {

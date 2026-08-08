@@ -118,9 +118,9 @@ func TestDashboardHandler_WithAuthWithKey(t *testing.T) {
 			expectCode: http.StatusOK,
 		},
 		{
-			name:       "valid key via query",
+			name:       "valid key via query (rejected — header only)",
 			queryKey:   testKey,
-			expectCode: http.StatusOK,
+			expectCode: http.StatusUnauthorized,
 		},
 		{
 			name:       "invalid key",

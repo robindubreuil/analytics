@@ -32,21 +32,19 @@ func getClientIP(r *http.Request) string {
 	return parseIP(r.RemoteAddr)
 }
 
-// parseIP extracts a bare IP address from a host:port string,
+// parseIP extracts a bare IP address from a host:port string or bare address,
 // handling both IPv4 and IPv6 (including bracketed [::1]:8080 format).
 func parseIP(host string) string {
-	if strings.HasPrefix(host, "[") {
-		if idx := strings.Index(host, "]"); idx != -1 {
-			return host[1:idx]
-		}
-	}
-
-	if idx := strings.LastIndex(host, ":"); idx != -1 {
-		host = host[:idx]
-	}
+	host = strings.TrimSpace(host)
 
 	if net.ParseIP(host) != nil {
 		return host
+	}
+
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		if net.ParseIP(h) != nil {
+			return h
+		}
 	}
 
 	return host
@@ -83,7 +81,7 @@ func APIKey(apiKey string) func(http.Handler) http.Handler {
 	}
 }
 
-// RateLimiter creates a simple rate limiter using token bucket algorithm.
+// RateLimiter creates a fixed-window rate limiter.
 // It limits requests per IP address.
 func RateLimiter(requests int, window time.Duration) (func(http.Handler) http.Handler, func()) {
 	limiter := &ipRateLimiter{
@@ -225,6 +223,7 @@ func CORS(allowedOrigins []string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			origin := r.Header.Get("Origin")
+			w.Header().Add("Vary", "Origin")
 
 			if r.Method == "OPTIONS" {
 				if origin != "" {

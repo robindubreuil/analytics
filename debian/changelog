@@ -1,3 +1,29 @@
+analytics (1.0.2-1) unstable; urgency=medium
+
+  * Fix bounce rate permanently inflated (read session before upsert)
+  * Fix page_stats.avg_engagement off-by-one formula
+  * Fix page_stats.sessions inflation on page revisit
+  * Add SQLite busy_timeout(5000) to reduce SQLITE_BUSY errors
+  * Run retention job immediately on startup (not after 24h delay)
+  * Add rate limiting to dashboard API endpoints
+  * Remove ?api_key= from dashboard auth (header only)
+  * Fix parseIP mangling bare IPv6 addresses
+  * Add Vary: Origin to CORS responses
+  * Narrow isBusyError matching (remove overly broad "(5)" pattern)
+  * Add retry jitter to StoreEvents backoff
+  * Fix config.Load() to handle -h/--help and parse errors
+  * Return 0 count on StoreEvents error (not partially-inserted count)
+  * Fix tracker: reset engagement/scroll on SPA pageview()
+  * Fix tracker: dispose() now flushes before marking disposed
+  * Remove ExecReload (server doesn't handle SIGHUP)
+  * Dockerfile: multi-arch build, CGO_ENABLED=0, includes dashboard SPA
+  * Release workflow: fix changelog version substitution
+  * Delete dead schema.sql, clean up dashboard dead code/imports
+  * Add debian/copyright, fix inert logrotate config
+  * Fix Makefile install path (/usr/local/bin → /usr/bin)
+
+ -- Robin Dubreuil <robin@dubreuil.pro>  Sat, 08 Aug 2026 23:00:00 +0200
+
 analytics (1.0.1-1) unstable; urgency=medium
 
   * Install analytics.js into dashboard dir (single web root)

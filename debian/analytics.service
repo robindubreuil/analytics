@@ -43,7 +43,6 @@ SyslogIdentifier=analytics
 
 # Service command
 ExecStart=/usr/bin/analytics
-ExecReload=/bin/kill -HUP $MAINPID
 
 # Additional hardening
 ProtectControlGroups=true

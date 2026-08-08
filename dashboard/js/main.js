@@ -4,29 +4,23 @@
 
 import '../css/main.css';
 import api, { APIError } from './api.js';
-import { LineChart, createLineChart, createSparkline } from './charts.js';
+import { LineChart, createLineChart } from './charts.js';
 import {
   DatePicker,
   SortableTable,
   MetricCard,
-  showLoading,
-  hideLoading,
   initThemeToggle,
   AutoRefresh,
-  createStatusBadge,
   ApiKeyModal
 } from './components.js';
 import {
   getDaysAgo,
   getToday,
   formatNumber,
-  formatPercent,
   formatDuration,
-  truncate,
   escapeHtml,
   updateURLParams,
-  getURLParams,
-  storage
+  getURLParams
 } from './utils.js';
 
 // ============================================================================

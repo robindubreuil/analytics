@@ -110,7 +110,13 @@ func Load() Config {
 		fs.PrintDefaults()
 	}
 
-	_ = fs.Parse(os.Args[1:])
+	if err := fs.Parse(os.Args[1:]); err != nil {
+		if err == flag.ErrHelp {
+			os.Exit(0)
+		}
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(2)
+	}
 
 	if cfg.CORSOrigins == "" {
 		cfg.CORSOrigins = "*"

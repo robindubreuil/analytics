@@ -2,7 +2,7 @@
 set -e
 
 case "$1" in
-    remove|upgrade|deconfigure)
+    remove)
         if [ -d /run/systemd/system ]; then
             if [ -f /lib/systemd/system/analytics.service ] || [ -f /etc/systemd/system/analytics.service ]; then
                 # Stop the service before removal
@@ -11,6 +11,17 @@ case "$1" in
                 fi
                 # Disable the service
                 systemctl disable analytics.service >/dev/null 2>&1 || true
+            fi
+        fi
+        ;;
+
+    # On upgrade/deconfigure only stop the service: the new package's
+    # postinst restarts it. Disabling here would leave the service running
+    # but dead at the next reboot.
+    upgrade|deconfigure)
+        if [ -d /run/systemd/system ]; then
+            if systemctl is-active analytics.service >/dev/null 2>&1; then
+                systemctl stop analytics.service >/dev/null 2>&1 || true
             fi
         fi
         ;;

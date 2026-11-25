@@ -1,3 +1,35 @@
+analytics (1.0.3-1) unstable; urgency=medium
+
+  [ Critical fixes ]
+  * Fix package upgrades disabling the service (prerm disabled on upgrade,
+    postinst never re-enabled) — the service died at the next reboot after
+    any .deb upgrade
+  * Fix tracker engagement undercounting: report engagement as deltas and
+    send a final 'engagement' event when the page becomes hidden/unloaded
+  * Fix rate-limit bypass: ignore client-supplied X-Real-IP (spoofable;
+    only the right-most X-Forwarded-For entry is trusted now)
+  * Fix SQLite pragmas (synchronous, cache_size, temp_store) applying to
+    only one pooled connection — moved into the DSN
+
+  [ Correctness ]
+  * Idempotent ingestion: events carry a dedup key, retries no longer
+    double-count pageviews/sessions/aggregates (migration 002)
+  * Fix bounce counter drift: sessions store a bounce flag so the un-bounce
+    transition happens exactly once
+  * Retention now prunes the sessions table too (raw per-visitor data)
+  * Drop dead columns page_stats.exits and daily_stats.avg_engagement
+  * Rune-safe truncation of long URLs/referrers/user agents
+  * Fix dashboard "clear API key" throwing ReferenceError (out-of-scope
+    apiKeyBtn) and skipping the data reload
+  * Dashboard: scrub api_key from the URL after reading it
+  * Dashboard: relabel "Visiteurs uniques" to "Nouvelles sessions"
+    (matches what the aggregate actually counts)
+  * Tracker: honor Global Privacy Control alongside DNT
+  * Log HTTP status code and client IP; package the systemd memory limit
+    drop-in; document missing env vars
+
+ -- Robin Dubreuil <robin@dubreuil.pro>  Wed, 25 Nov 2026 21:30:00 +0100
+
 analytics (1.0.2-1) unstable; urgency=medium
 
   * Fix bounce rate permanently inflated (read session before upsert)

@@ -97,7 +97,7 @@ tests/             # End-to-end integration tests
 ```
 
 ### Tracker
-`analytics.js` — Client-side tracking snippet. Respects DNT, uses sendBeacon for reliable delivery, supports batch events. Embed via:
+`analytics.js` — Client-side tracking snippet. Respects DNT and Global Privacy Control, uses sendBeacon for reliable delivery, supports batch events. Engagement time is reported as deltas since the previous event, plus a final `engagement` event when the page becomes hidden or is unloaded, so reading time after the last scroll is captured. Ingestion is idempotent: retried batches are deduplicated server-side. Embed via:
 ```html
 <script src="/analytics.js" data-endpoint="/api/analytics" data-api-key="key"></script>
 ```

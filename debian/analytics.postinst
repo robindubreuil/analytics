@@ -77,13 +77,15 @@ case "$1" in
         # Enable and start the service
         if [ -d /run/systemd/system ]; then
             systemctl daemon-reload >/dev/null 2>&1 || true
+            # Always (re)enable, including on upgrades: an upgrade that
+            # leaves the unit disabled detonates at the next reboot.
+            systemctl enable analytics.service >/dev/null 2>&1 || true
             if [ -z "$2" ]; then
                 # Fresh installation
-                systemctl enable analytics.service >/dev/null 2>&1 || true
                 systemctl start analytics.service >/dev/null 2>&1 || true
             else
                 # Upgrade
-                systemctl reload-or-restart analytics.service >/dev/null 2>&1 || true
+                systemctl restart analytics.service >/dev/null 2>&1 || true
             fi
         fi
         ;;

@@ -1,7 +1,9 @@
 /**
  * Privacy-focused analytics tracker
  * Tracks page views, engagement time, and custom events
- * Uses sendBeacon for reliable delivery, respects DNT
+ * Uses sendBeacon for reliable delivery, respects DNT and GPC
+ * Engagement is reported as deltas (since the previous event) plus a final
+ * 'engagement' event when the page becomes hidden or is unloaded.
  *
  * Embed: <script src="/analytics.js" data-endpoint="/api/analytics" data-api-key="key"></script>
  * Or configure via window.ANALYTICS_CONFIG before loading.
@@ -83,6 +85,7 @@
 
     this._queue = [];
     this._engagementTime = 0;
+    this._engagementReported = 0;
     this._isPageVisible = !document.hidden;
     this._engagementTimer = null;
     this._flushTimer = null;
@@ -112,7 +115,8 @@
 
   Analytics.prototype._shouldEnable = function () {
     if (this._options.respectDNT &&
-        (navigator.doNotTrack === '1' || window.doNotTrack === '1' || navigator.msDoNotTrack === '1')) {
+        (navigator.doNotTrack === '1' || window.doNotTrack === '1' || navigator.msDoNotTrack === '1' ||
+         navigator.globalPrivacyControl === true)) {
       return false;
     }
     try {
@@ -140,12 +144,15 @@
       viewportWidth: window.innerWidth,
       viewportHeight: window.innerHeight,
       scrollDepth: this._maxScrollDepth,
-      engagementTime: Math.round(this._engagementTime)
+      // Engagement is reported as a delta since the last enqueued event so
+      // the server can sum values across events without double counting.
+      engagementTime: Math.round(this._engagementTime - this._engagementReported)
     };
   };
 
   Analytics.prototype._enqueue = function (event) {
     this._queue.push(event);
+    this._engagementReported = this._engagementTime;
     if (this._queue.length >= this._options.batchSize) {
       this._flush();
     } else {
@@ -153,9 +160,28 @@
     }
   };
 
+  // Enqueues a final 'engagement' event carrying the engagement time and
+  // scroll depth accumulated since the last enqueued event. Called when the
+  // page becomes hidden or is unloaded — without it, time spent reading a
+  // page after the last scroll would never be reported.
+  Analytics.prototype._sendEngagementSnapshot = function () {
+    if (!this._isEnabled || this._isDisposed) return;
+    if (!this._options.trackEngagement) return;
+    if (Math.round(this._engagementTime - this._engagementReported) < 1) return;
+    this._enqueue({
+      sessionId: this._sessionId,
+      type: 'engagement',
+      url: window.location.pathname,
+      timestamp: Date.now(),
+      userAgent: navigator.userAgent,
+      data: this._getBaseContext()
+    });
+  };
+
   Analytics.prototype.pageview = function (data) {
     if (!this._isEnabled || this._isDisposed) return;
     this._engagementTime = 0;
+    this._engagementReported = 0;
     this._maxScrollDepth = 0;
     this._scrollDepthsTracked = {};
     data = data || {};
@@ -274,7 +300,10 @@
     this._addListener(document, 'visibilitychange', function () {
       var wasVisible = self._isPageVisible;
       self._isPageVisible = !document.hidden;
-      if (wasVisible && document.hidden) self._flush(true);
+      if (wasVisible && document.hidden) {
+        self._sendEngagementSnapshot();
+        self._flush(true);
+      }
     });
 
     if (this._options.trackScrollDepth) {
@@ -284,8 +313,8 @@
       this._addListener(window, 'scroll', scrollFn, { passive: true });
     }
 
-    this._addListener(window, 'beforeunload', function () { self._flush(true); });
-    this._addListener(window, 'pagehide', function () { self._flush(true); });
+    this._addListener(window, 'beforeunload', function () { self._sendEngagementSnapshot(); self._flush(true); });
+    this._addListener(window, 'pagehide', function () { self._sendEngagementSnapshot(); self._flush(true); });
   };
 
   Analytics.prototype._addListener = function (target, type, fn, options) {
@@ -344,6 +373,7 @@
 
   Analytics.prototype.dispose = function () {
     if (this._isDisposed) return;
+    this._sendEngagementSnapshot();
     this._flush(true);
     this._isDisposed = true;
     this._stopTimers();

@@ -30,6 +30,7 @@ override_dh_auto_install:
 	install -D -m 0755 analytics debian/analytics/usr/bin/analytics
 
 	install -D -m 0644 debian/analytics.service debian/analytics/usr/lib/systemd/system/analytics.service
+	install -D -m 0644 debian/analytics-memory.conf debian/analytics/usr/lib/systemd/system/analytics.service.d/memory.conf
 
 	install -D -m 0640 debian/analytics.default debian/analytics/etc/default/analytics
 	install -D -m 0640 debian/analytics.env debian/analytics/etc/analytics/env.dist

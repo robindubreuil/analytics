@@ -127,11 +127,12 @@ class Dashboard {
       this.metrics.sessions.mount(sessionsEl);
     }
 
-    // Visitors metric
+    // Visitors metric: summed daily new sessions (a session counts on its
+    // first day), which is what the aggregate actually measures.
     const visitorsEl = document.getElementById('metric-visitors');
     if (visitorsEl) {
       this.metrics.visitors = new MetricCard({
-        label: 'Visiteurs uniques',
+        label: 'Nouvelles sessions',
         value: 0,
         previousValue: null,
         format: formatNumber
@@ -310,7 +311,8 @@ class Dashboard {
     modal.querySelector('[data-action="clear"]').addEventListener('click', () => {
       api.clearApiKey();
       backdrop.remove();
-      apiKeyBtn?.classList.remove('header__btn--active');
+      // apiKeyBtn is scoped to #initActions; re-resolve it here.
+      document.getElementById('api-key-btn')?.classList.remove('header__btn--active');
       this.loadData(); // Reload to show auth prompt if needed
     });
 

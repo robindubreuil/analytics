@@ -28,11 +28,21 @@ class AnalyticsAPI {
   }
 
   /**
-   * Get API key from URL query param (takes precedence)
+   * Get API key from URL query param (takes precedence).
+   * The param is removed from the visible URL right after reading so the
+   * key does not linger in the address bar, history entries or the
+   * Referer header of any subsequent navigation.
    */
   #getApiKeyFromURL() {
     const params = new URLSearchParams(window.location.search);
-    return params.get('api_key') || '';
+    const key = params.get('api_key');
+    if (key) {
+      params.delete('api_key');
+      const qs = params.toString();
+      const newUrl = window.location.pathname + (qs ? `?${qs}` : '') + window.location.hash;
+      window.history.replaceState({}, '', newUrl);
+    }
+    return key || '';
   }
 
   /**

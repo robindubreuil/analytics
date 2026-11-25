@@ -18,15 +18,17 @@ import (
 //go:embed migrations/*.sql
 var migrationsFS embed.FS
 
-const (
-	walMode       = "PRAGMA journal_mode=WAL;"
-	synchronousMode = "PRAGMA synchronous=NORMAL;"
-	cacheSize     = "PRAGMA cache_size=-64000;" // 64MB
-	tempStore     = "PRAGMA temp_store=MEMORY;"
-)
+const dsnSuffix = "?_pragma=busy_timeout(5000)" +
+	"&_pragma=foreign_keys(1)" +
+	"&_pragma=journal_mode(WAL)" +
+	"&_pragma=synchronous(NORMAL)" +
+	"&_pragma=cache_size(-64000)" + // 64MB
+	"&_pragma=temp_store(MEMORY)"
 
 // Open opens a SQLite database at the given path, applying migrations if needed.
 // It creates parent directories if they don't exist.
+// Performance and safety pragmas are set in the DSN so they apply to every
+// pooled connection, not just the one that happens to run first.
 func Open(path string) (*sql.DB, error) {
 	// Ensure parent directory exists
 	dir := filepath.Dir(path)
@@ -37,15 +39,9 @@ func Open(path string) (*sql.DB, error) {
 	}
 
 	// Open database with SQLite driver
-	db, err := sql.Open("sqlite", path+"?_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)")
+	db, err := sql.Open("sqlite", path+dsnSuffix)
 	if err != nil {
 		return nil, fmt.Errorf("open database: %w", err)
-	}
-
-	// Apply performance optimizations
-	if err := optimize(db); err != nil {
-		_ = db.Close()
-		return nil, fmt.Errorf("optimize database: %w", err)
 	}
 
 	// Run migrations
@@ -55,23 +51,6 @@ func Open(path string) (*sql.DB, error) {
 	}
 
 	return db, nil
-}
-
-// optimize applies SQLite performance optimizations.
-func optimize(db *sql.DB) error {
-	optimizations := []string{
-		walMode,
-		synchronousMode,
-		cacheSize,
-		tempStore,
-	}
-
-	for _, pragma := range optimizations {
-		if _, err := db.Exec(pragma); err != nil {
-			return fmt.Errorf("exec pragma %q: %w", pragma, err)
-		}
-	}
-	return nil
 }
 
 // migrate runs database migrations from the embedded migrations directory.

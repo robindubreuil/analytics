@@ -552,8 +552,9 @@ func TestDeleteOldEvents(t *testing.T) {
 		t.Fatalf("Failed to delete old events: %v", err)
 	}
 
-	if deleted != 1 {
-		t.Errorf("Expected 1 deleted event, got %d", deleted)
+	// 1 old event + 1 old session (retention prunes both raw tables).
+	if deleted != 2 {
+		t.Errorf("Expected 2 deleted rows (1 event + 1 session), got %d", deleted)
 	}
 
 	var count int
@@ -563,6 +564,15 @@ func TestDeleteOldEvents(t *testing.T) {
 	}
 	if count != 1 {
 		t.Errorf("Expected 1 event remaining, got %d", count)
+	}
+
+	var sessionCount int
+	err = th.DB.QueryRow("SELECT COUNT(*) FROM sessions").Scan(&sessionCount)
+	if err != nil {
+		t.Fatalf("Failed to count sessions: %v", err)
+	}
+	if sessionCount != 1 {
+		t.Errorf("Expected 1 session remaining, got %d", sessionCount)
 	}
 }
 
@@ -707,6 +717,108 @@ func TestDailyStatsAggregation(t *testing.T) {
 	}
 	if stats.Sessions != 3 {
 		t.Errorf("Expected 3 sessions, got %d", stats.Sessions)
+	}
+}
+
+// TestStoreEventsDuplicateRetry verifies idempotent ingestion: re-sending
+// the same batch (e.g. after a lost HTTP response) must not double-count
+// events, sessions, pageviews or daily aggregates.
+func TestStoreEventsDuplicateRetry(t *testing.T) {
+	th := NewTestHelper(t)
+	defer th.Close(t)
+
+	now := time.Now().UnixMilli()
+	events := []Event{
+		{SessionID: "sess-dup", Type: "pageview", URL: "/page", Timestamp: now, EngagementTime: 5},
+	}
+
+	if _, err := StoreEvents(th.DB, events); err != nil {
+		t.Fatalf("Failed to store events: %v", err)
+	}
+
+	count, err := StoreEvents(th.DB, events)
+	if err != nil {
+		t.Fatalf("Failed to re-store events: %v", err)
+	}
+	if count != 0 {
+		t.Errorf("Expected 0 newly stored events on retry, got %d", count)
+	}
+
+	var eventCount, pageviews int
+	if err := th.DB.QueryRow("SELECT COUNT(*) FROM events").Scan(&eventCount); err != nil {
+		t.Fatalf("Failed to count events: %v", err)
+	}
+	if eventCount != 1 {
+		t.Errorf("Expected 1 event after retry, got %d", eventCount)
+	}
+	if err := th.DB.QueryRow("SELECT pageviews FROM sessions WHERE session_id = 'sess-dup'").Scan(&pageviews); err != nil {
+		t.Fatalf("Failed to get pageviews: %v", err)
+	}
+	if pageviews != 1 {
+		t.Errorf("Expected 1 pageview after retry, got %d", pageviews)
+	}
+
+	summary, err := GetSummary(th.DB, "2000-01-01", "2999-01-01")
+	if err != nil {
+		t.Fatalf("Failed to get summary: %v", err)
+	}
+	if summary.Pageviews != 1 || summary.Sessions != 1 {
+		t.Errorf("Expected summary pageviews=1 sessions=1 after retry, got pageviews=%d sessions=%d",
+			summary.Pageviews, summary.Sessions)
+	}
+}
+
+// TestBounceCounting verifies the bounce lifecycle: a single-pageview session
+// counts as a bounce once, matures exactly once when engagement grows, and
+// later batches never decrement it again (bounce rate can drift negative
+// otherwise).
+func TestBounceCounting(t *testing.T) {
+	th := NewTestHelper(t)
+	defer th.Close(t)
+
+	now := time.Now().UnixMilli()
+	date := time.Now().UTC().Format("2006-01-02")
+
+	// Batch 1: new session, 1 pageview, no engagement -> bounce.
+	batch1 := []Event{
+		{SessionID: "sess-b", Type: "pageview", URL: "/page", Timestamp: now, EngagementTime: 0},
+	}
+	if _, err := StoreEvents(th.DB, batch1); err != nil {
+		t.Fatalf("Failed to store batch 1: %v", err)
+	}
+
+	getBounce := func() int {
+		var bounced int
+		err := th.DB.QueryRow("SELECT bounced_sessions FROM daily_stats WHERE date = ?", date).Scan(&bounced)
+		if err != nil {
+			t.Fatalf("Failed to read daily bounce: %v", err)
+		}
+		return bounced
+	}
+	if got := getBounce(); got != 1 {
+		t.Fatalf("Expected bounce=1 after first batch, got %d", got)
+	}
+
+	// Batch 2: engagement grows past the threshold -> un-bounce exactly once.
+	batch2 := []Event{
+		{SessionID: "sess-b", Type: "pageview", URL: "/page2", Timestamp: now + 5000, EngagementTime: 60},
+	}
+	if _, err := StoreEvents(th.DB, batch2); err != nil {
+		t.Fatalf("Failed to store batch 2: %v", err)
+	}
+	if got := getBounce(); got != 0 {
+		t.Fatalf("Expected bounce=0 after session matured, got %d", got)
+	}
+
+	// Batch 3: another plain event, session still mature -> must NOT un-bounce again.
+	batch3 := []Event{
+		{SessionID: "sess-b", Type: "pageview", URL: "/page3", Timestamp: now + 10000, EngagementTime: 0},
+	}
+	if _, err := StoreEvents(th.DB, batch3); err != nil {
+		t.Fatalf("Failed to store batch 3: %v", err)
+	}
+	if got := getBounce(); got != 0 {
+		t.Errorf("Expected bounce to stay 0 (never negative), got %d", got)
 	}
 }
 

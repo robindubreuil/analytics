@@ -256,21 +256,29 @@ func TestRateLimiterXForwardedFor(t *testing.T) {
 	}
 }
 
-func TestRateLimiterXRealIP(t *testing.T) {
+func TestRateLimiterIgnoresSpoofedRealIP(t *testing.T) {
 	rateLimiter, _ := RateLimiter(1, time.Minute)
 	handler := rateLimiter(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
-	// Test X-Real-IP header
+	// First request: allowed (the only one in the window).
 	req := httptest.NewRequest("GET", "/", nil)
-	req.Header.Set("X-Real-IP", "10.0.0.2")
 	w := httptest.NewRecorder()
-
 	handler.ServeHTTP(w, req)
-
 	if w.Code != http.StatusOK {
 		t.Errorf("Expected status 200, got %d", w.Code)
+	}
+
+	// Second request from the same remote address but with a spoofed
+	// X-Real-IP: the header is client-controlled and must be ignored,
+	// otherwise rate limiting can be bypassed by rotating fake IPs.
+	req2 := httptest.NewRequest("GET", "/", nil)
+	req2.Header.Set("X-Real-IP", "10.0.0.2")
+	w2 := httptest.NewRecorder()
+	handler.ServeHTTP(w2, req2)
+	if w2.Code != http.StatusTooManyRequests {
+		t.Errorf("Expected status 429 despite spoofed X-Real-IP, got %d", w2.Code)
 	}
 }
 

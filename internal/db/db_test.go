@@ -93,8 +93,8 @@ func TestMigrate(t *testing.T) {
 	if err != nil {
 		t.Errorf("Failed to get migration version: %v", err)
 	}
-	if version != 1 {
-		t.Errorf("Expected migration version 1, got %d", version)
+	if version != 2 {
+		t.Errorf("Expected migration version 2, got %d", version)
 	}
 
 	var name string
@@ -104,6 +104,24 @@ func TestMigrate(t *testing.T) {
 	}
 	if name != "001_initial.sql" {
 		t.Errorf("Expected migration name '001_initial.sql', got %s", name)
+	}
+
+	// Migration 002 adds the dedup column and bounce flag, and drops
+	// the dead exits/avg_engagement columns.
+	var dedupCount, bouncedCount int
+	err = th.DB.QueryRow("SELECT COUNT(*) FROM pragma_table_info('events') WHERE name='dedup_key'").Scan(&dedupCount)
+	if err != nil || dedupCount != 1 {
+		t.Errorf("Expected events.dedup_key column, err=%v count=%d", err, dedupCount)
+	}
+	err = th.DB.QueryRow("SELECT COUNT(*) FROM pragma_table_info('sessions') WHERE name='bounced'").Scan(&bouncedCount)
+	if err != nil || bouncedCount != 1 {
+		t.Errorf("Expected sessions.bounced column, err=%v count=%d", err, bouncedCount)
+	}
+	var exitsCount, avgEngagementCount int
+	_ = th.DB.QueryRow("SELECT COUNT(*) FROM pragma_table_info('page_stats') WHERE name='exits'").Scan(&exitsCount)
+	_ = th.DB.QueryRow("SELECT COUNT(*) FROM pragma_table_info('daily_stats') WHERE name='avg_engagement'").Scan(&avgEngagementCount)
+	if exitsCount != 0 || avgEngagementCount != 0 {
+		t.Errorf("Expected dead columns dropped, exits=%d avg_engagement=%d", exitsCount, avgEngagementCount)
 	}
 }
 
@@ -126,9 +144,15 @@ func TestMigrateIdempotent(t *testing.T) {
 	}
 }
 
-func TestOptimize(t *testing.T) {
+// TestConnectionPragmas verifies that performance pragmas apply to every
+// pooled connection (they are set via the DSN, not a one-off Exec).
+func TestConnectionPragmas(t *testing.T) {
 	th := NewTestHelper(t)
 	defer th.Close(t)
+
+	// Force a second connection to make sure the pragmas are not
+	// only applied to the first pooled connection.
+	th.DB.SetMaxOpenConns(2)
 
 	var journalMode string
 	err := th.DB.QueryRow("PRAGMA journal_mode").Scan(&journalMode)

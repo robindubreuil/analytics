@@ -9,6 +9,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -33,7 +34,13 @@ func openTestDB(t *testing.T) *sql.DB {
 	return database
 }
 
-func ts() int64 { return time.Now().UnixMilli() }
+var tsCounter int64
+
+// ts returns a unique timestamp so test events never collide on the
+// ingestion dedup key (session + type + url + timestamp).
+func ts() int64 {
+	return time.Now().UnixMilli() + atomic.AddInt64(&tsCounter, 1)
+}
 
 func makeEventJSON(sid, evType, url string) string {
 	return fmt.Sprintf(`{"sessionId":"%s","type":"%s","url":"%s","timestamp":%d,"data":{"screenWidth":1920,"screenHeight":1080,"viewportWidth":1920,"viewportHeight":900,"scrollDepth":0,"engagementTime":0}}`, sid, evType, url, ts())
@@ -90,9 +97,9 @@ func TestHandlerServeHTTP(t *testing.T) {
 			},
 		},
 		{
-			name:   "custom event",
-			method: "POST",
-			body: fmt.Sprintf(`[{"sessionId":"s1","type":"event","event":"button_click","url":"/test","timestamp":%d,"data":{"screenWidth":1920,"screenHeight":1080,"viewportWidth":1920,"viewportHeight":900,"scrollDepth":0,"engagementTime":0}}]`, ts()),
+			name:           "custom event",
+			method:         "POST",
+			body:           fmt.Sprintf(`[{"sessionId":"s1","type":"event","event":"button_click","url":"/test","timestamp":%d,"data":{"screenWidth":1920,"screenHeight":1080,"viewportWidth":1920,"viewportHeight":900,"scrollDepth":0,"engagementTime":0}}]`, ts()),
 			expectedStatus: http.StatusOK,
 		},
 		{
@@ -475,5 +482,65 @@ func TestBatchSizeLimit(t *testing.T) {
 
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("Expected status 400 for oversized batch, got %d", w.Code)
+	}
+}
+
+// TestTruncateUTF8 verifies that byte-limited truncation never splits a
+// multi-byte rune (which would store invalid UTF-8 in the database).
+func TestTruncateUTF8(t *testing.T) {
+	// "é" is 2 bytes: 4 runes = 8 bytes.
+	s := "éééé"
+	if got := truncateUTF8(s, 8); got != s {
+		t.Errorf("Expected unchanged string, got %q", got)
+	}
+	// Cutting at 7 bytes must back up to 6 bytes (3 runes).
+	if got := truncateUTF8(s, 7); got != "ééé" {
+		t.Errorf("Expected 3 runes, got %q", got)
+	}
+	if got := truncateUTF8(s, 5); got != "éé" {
+		t.Errorf("Expected 2 runes, got %q", got)
+	}
+	// ASCII is unaffected.
+	if got := truncateUTF8("abcdefgh", 5); got != "abcde" {
+		t.Errorf("Expected 'abcde', got %q", got)
+	}
+}
+
+// TestHandlerEngagementEvent verifies that the tracker's final engagement
+// heartbeat is accepted and updates engagement without counting as a
+// pageview or a custom event.
+func TestHandlerEngagementEvent(t *testing.T) {
+	database := openTestDB(t)
+	defer database.Close()
+
+	handler := New(database, 3)
+
+	body := fmt.Sprintf(`[
+		{"sessionId":"s-eng","type":"pageview","url":"/test","timestamp":%d,"data":{"engagementTime":0}},
+		{"sessionId":"s-eng","type":"engagement","url":"/test","timestamp":%d,"data":{"engagementTime":45,"scrollDepth":75}}
+	]`, ts(), ts())
+
+	req := httptest.NewRequest("POST", "/api/analytics", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("Expected status 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var pageviews, events, engagement int
+	err := database.QueryRow(`SELECT pageviews, events, total_engagement FROM sessions WHERE session_id='s-eng'`).Scan(&pageviews, &events, &engagement)
+	if err != nil {
+		t.Fatalf("Failed to read session: %v", err)
+	}
+	if pageviews != 1 {
+		t.Errorf("Expected 1 pageview, got %d", pageviews)
+	}
+	if events != 0 {
+		t.Errorf("Expected 0 custom events (engagement is not one), got %d", events)
+	}
+	if engagement != 45 {
+		t.Errorf("Expected 45s engagement, got %d", engagement)
 	}
 }

@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/robindubreuil/analytics/internal/api"
 	"github.com/robindubreuil/analytics/internal/db"
@@ -151,7 +152,7 @@ func validateAndConvert(clientEvents []ClientEvent) ([]db.Event, error) {
 			continue
 		}
 
-		if e.Type != "pageview" && e.Type != "event" {
+		if e.Type != "pageview" && e.Type != "event" && e.Type != "engagement" {
 			errs = append(errs, fmt.Sprintf("event %d: invalid type '%s'", i, e.Type))
 			continue
 		}
@@ -166,13 +167,13 @@ func validateAndConvert(clientEvents []ClientEvent) ([]db.Event, error) {
 		}
 
 		if len(e.URL) > 2048 {
-			e.URL = e.URL[:2048]
+			e.URL = truncateUTF8(e.URL, 2048)
 		}
 		if len(e.Referrer) > 2048 {
-			e.Referrer = e.Referrer[:2048]
+			e.Referrer = truncateUTF8(e.Referrer, 2048)
 		}
 		if len(e.UserAgent) > 500 {
-			e.UserAgent = e.UserAgent[:500]
+			e.UserAgent = truncateUTF8(e.UserAgent, 500)
 		}
 
 		screenW := clampPositive(e.Data.ScreenWidth)
@@ -212,6 +213,19 @@ func clampPositive(v int) int {
 		return 0
 	}
 	return v
+}
+
+// truncateUTF8 cuts a string at most limit bytes without splitting a
+// multi-byte UTF-8 rune in half (a byte-level cut would store invalid UTF-8).
+func truncateUTF8(s string, limit int) string {
+	if len(s) <= limit {
+		return s
+	}
+	end := limit
+	for end > 0 && !utf8.RuneStart(s[end]) {
+		end--
+	}
+	return s[:end]
 }
 
 func sanitizeEventName(name string) string {

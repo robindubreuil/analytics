@@ -11,19 +11,17 @@ import (
 	"time"
 )
 
-// getClientIP extracts the client IP from the request, safely handling
-// X-Forwarded-For and X-Real-IP headers to prevent spoofing.
+// getClientIP extracts the client IP from the request.
+// It trusts only the right-most entry of X-Forwarded-For, which is the IP
+// appended by the reverse proxy in front of this service (Caddy). Anything
+// further left is client-controlled and untrusted. X-Real-IP is deliberately
+// ignored: the proxy does not set it, so a client could spoof it to bypass
+// rate limiting.
 func getClientIP(r *http.Request) string {
-	if realIP := r.Header.Get("X-Real-IP"); realIP != "" {
-		if ip := parseIP(realIP); ip != "" {
-			return ip
-		}
-	}
-
 	if fwd := r.Header.Get("X-Forwarded-For"); fwd != "" {
 		ips := strings.Split(fwd, ",")
-		for i := len(ips) - 1; i >= 0; i-- {
-			if ip := parseIP(strings.TrimSpace(ips[i])); ip != "" {
+		if len(ips) > 0 {
+			if ip := parseIP(strings.TrimSpace(ips[len(ips)-1])); ip != "" {
 				return ip
 			}
 		}
@@ -200,12 +198,24 @@ func Recovery(next http.Handler) http.Handler {
 	})
 }
 
+// statusWriter wraps http.ResponseWriter to capture the response status code.
+type statusWriter struct {
+	http.ResponseWriter
+	status int
+}
+
+func (w *statusWriter) WriteHeader(code int) {
+	w.status = code
+	w.ResponseWriter.WriteHeader(code)
+}
+
 // Logger creates middleware that logs HTTP requests.
 func Logger(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
-		next.ServeHTTP(w, r)
-		log.Printf("[HTTP] %s %s %s", r.Method, r.URL.Path, time.Since(start))
+		sw := &statusWriter{ResponseWriter: w, status: http.StatusOK}
+		next.ServeHTTP(sw, r)
+		log.Printf("[HTTP] %s %s %s %d %s", getClientIP(r), r.Method, r.URL.Path, sw.status, time.Since(start))
 	})
 }
 
